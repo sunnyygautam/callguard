@@ -1,0 +1,139 @@
+<resources>
+    <string name="app_name">CallGuard</string>
+    <string name="app_subtitle">Series &amp; Prefix Call Blocker</string>
+
+    <!-- Protection Status Banner -->
+    <string name="status_shield_banner_cd">Call protection radar banner</string>
+    <string name="status_active_title">Call Screening Active</string>
+    <string name="status_active_subtitle">Automatically rejecting calls matching your enabled prefixes.</string>
+    <string name="status_inactive_title">Set as Default Spam Blocker</string>
+    <string name="status_inactive_subtitle">Grant Android Call Screening role so CallGuard can intercept and block matching series.</string>
+    <string name="status_unsupported_title">Android 10+ Role Unavailable</string>
+    <string name="status_unsupported_subtitle">ROLE_CALL_SCREENING requires Android 10 (API 29) or higher.</string>
+    <string name="btn_set_default_screener">Set as Default Caller ID &amp; Spam App</string>
+    <string name="btn_default_screener_active">Default Caller ID &amp; Spam App Enabled</string>
+    <string name="btn_grant_phone_permissions">Grant Phone Permissions</string>
+    <string name="permissions_granted_label">Phone permissions ready</string>
+    <string name="permissions_missing_label">Phone permissions optional on Android 10+, tap to grant</string>
+    <string name="stat_active_rules">%1$d active</string>
+    <string name="stat_total_rules">%1$d saved</string>
+
+    <!-- Add Prefix Form -->
+    <string name="add_prefix_section_title">Block a Number Series</string>
+    <string name="add_prefix_section_hint">Any incoming call starting with this prefix will be rejected silently.</string>
+    <string name="label_prefix_input">Number Prefix</string>
+    <string name="placeholder_prefix_input">e.g. +91140, +1800, 0114</string>
+    <string name="label_reason_input">Label / Reason (Optional)</string>
+    <string name="placeholder_reason_input">e.g. Telemarketer, Spam Survey</string>
+    <string name="btn_add_prefix">Add Prefix</string>
+    <string name="quick_examples_label">Common series:</string>
+    <string name="error_prefix_empty">Enter a number prefix such as +91140 or 0114.</string>
+    <string name="error_prefix_invalid">Use at least 2 digits (optional leading +).</string>
+    <string name="error_prefix_duplicate">This prefix is already in your block list.</string>
+
+    <!-- Saved Prefixes List -->
+    <string name="saved_prefixes_header">Blocked Series Rules</string>
+    <string name="default_rule_label">Manual prefix rule</string>
+    <string name="rule_status_blocking">Blocking</string>
+    <string name="rule_status_paused">Paused</string>
+    <string name="cd_toggle_prefix">Toggle blocking for prefix %1$s</string>
+    <string name="cd_delete_prefix">Delete prefix %1$s</string>
+    <string name="cd_shield_icon">Shield status icon</string>
+    <string name="cd_clear_input">Clear text</string>
+
+    <!-- Empty State -->
+    <string name="empty_state_title">No Blocked Prefixes Yet</string>
+    <string name="empty_state_body">Add a telemarketer or spam series above (like +91140 or +1800) to automatically block matching incoming calls.</string>
+
+    <!-- Blocked Call History Section -->
+    <string name="blocked_history_header">Blocked Call History</string>
+    <string name="blocked_history_count">%1$d blocked</string>
+    <string name="btn_clear_history">Clear All</string>
+    <string name="matched_prefix_badge">Prefix %1$s*</string>
+    <string name="cd_delete_blocked_log">Remove blocked call %1$s from history</string>
+    <string name="empty_history_title">No Blocked Calls Logged</string>
+    <string name="empty_history_body">Incoming calls intercepted and rejected by your active prefix rules will be logged here automatically.</string>
+    <string name="dialog_clear_history_title">Clear Blocked Call History?</string>
+    <string name="dialog_clear_history_body">This will permanently remove all %1$d logged blocked calls from local history. Your prefix blocking rules will not be affected.</string>
+    <string name="dialog_confirm_clear">Clear History</string>
+    <string name="dialog_cancel">Cancel</string>
+
+    <!-- Navigation Tabs -->
+    <string name="nav_shield">Shield</string>
+    <string name="nav_calls">Calls</string>
+
+    <!-- 7-Day Summary Dashboard -->
+    <string name="dashboard_title">7-Day Blocked Summary</string>
+    <string name="dashboard_subtitle">Calls automatically intercepted</string>
+    <string name="dashboard_badge_7d">Last 7 Days</string>
+    <string name="dashboard_metric_7d_blocked">7d Blocked</string>
+    <string name="dashboard_metric_daily_peak">Daily Peak</string>
+    <string name="dashboard_metric_active_rules">Active Rules</string>
+    <string name="dashboard_day_today">Today</string>
+    <string name="dashboard_tooltip_single">%1$s • 1 blocked call</string>
+    <string name="dashboard_tooltip_plural">%1$s • %2$d blocked calls</string>
+    <string name="dashboard_chart_cd">Bar chart showing blocked calls over the last 7 days</string>
+
+    <!-- Dialer & Calling -->
+    <string name="dialer_section_title">Phone &amp; Call History</string>
+    <string name="dialer_section_subtitle">Place calls or block spam numbers from recent history</string>
+    <string name="dialer_input_placeholder">Enter phone number</string>
+    <string name="dialer_btn_call">Call</string>
+    <string name="dialer_btn_hide_keypad">Hide Keypad</string>
+    <string name="dialer_btn_show_keypad">Keypad</string>
+    <string name="dialer_cd_backspace">Delete last digit</string>
+    <string name="dialer_cd_call_number">Call %1$s</string>
+    <string name="dialer_cd_block_number">Block prefix for %1$s</string>
+    <string name="dialer_error_empty">Enter a phone number to call.</string>
+    <string name="dialer_no_phone_app">No phone dialer app available on this device.</string>
+    <string name="dialer_opening_system_dialer">Opening system dialer for %1$s</string>
+
+    <!-- Device Call History -->
+    <string name="call_history_header">Recent Call History</string>
+    <string name="call_history_refresh_cd">Refresh call history</string>
+    <string name="call_history_filter_all">All</string>
+    <string name="call_history_filter_incoming">Incoming</string>
+    <string name="call_history_filter_outgoing">Outgoing</string>
+    <string name="call_history_filter_missed">Missed</string>
+    <string name="call_type_incoming">Incoming</string>
+    <string name="call_type_outgoing">Outgoing</string>
+    <string name="call_type_missed">Missed</string>
+    <string name="call_type_rejected">Blocked / Rejected</string>
+    <string name="call_unknown_number">Unknown Number</string>
+    <string name="call_history_permission_title">Allow Call Log Access</string>
+    <string name="call_history_permission_body">Grant READ_CALL_LOG permission to view your recent incoming, outgoing, and missed calls directly in CallGuard.</string>
+    <string name="call_history_grant_permission">Grant Call Log Permission</string>
+    <string name="call_history_empty_title">No Recent Calls Found</string>
+    <string name="call_history_empty_body">Calls placed or received on this device will appear here once logged by Android.</string>
+    <string name="snackbar_prefilled_block_prefix">Prefilled prefix %1$s — tap Add Prefix to block</string>
+
+    <!-- Spam Call Blocker Controls -->
+    <string name="spam_blocker_title">Spam Call Blocker</string>
+    <string name="spam_blocker_status_on">Active</string>
+    <string name="spam_blocker_status_off">Paused</string>
+    <string name="spam_blocker_subtitle_on">Screening incoming calls against spam layers and your prefix rules.</string>
+    <string name="spam_blocker_subtitle_off">All incoming call blocking is temporarily paused.</string>
+    <string name="spam_toggle_builtin_title">Auto-Block Telemarketer Series</string>
+    <string name="spam_toggle_builtin_desc">Block common spam &amp; toll-free prefixes (+91140, +1800, +1888, +1877)</string>
+    <string name="spam_toggle_private_title">Block Private &amp; Unknown Callers</string>
+    <string name="spam_toggle_private_desc">Reject anonymous, restricted, or hidden caller ID numbers</string>
+    <string name="spam_toggle_spoofed_title">Block Spoofed Calls (STIR/SHAKEN)</string>
+    <string name="spam_toggle_spoofed_desc">Reject calls that fail carrier caller-ID verification (Android 11+)</string>
+    <string name="spam_toggle_silence_title">Silence Instead of Reject</string>
+    <string name="spam_toggle_silence_desc">Mute spam calls silently instead of immediately hanging up</string>
+    <string name="cd_master_spam_switch">Enable or disable spam call blocker</string>
+    <string name="snackbar_spam_blocker_enabled">Spam call blocker enabled</string>
+    <string name="snackbar_spam_blocker_paused">Spam call blocker paused</string>
+
+    <!-- Feedback Snackbars -->
+    <string name="snackbar_prefix_added">Blocked prefix %1$s added</string>
+    <string name="snackbar_prefix_deleted">Removed prefix %1$s</string>
+    <string name="snackbar_log_deleted">Removed %1$s from history</string>
+    <string name="snackbar_history_cleared">Blocked call history cleared</string>
+    <string name="snackbar_undo">Undo</string>
+    <string name="snackbar_role_granted">CallGuard is now your default Caller ID &amp; Spam app</string>
+    <string name="snackbar_role_denied">Call Screening role was not granted</string>
+    <string name="snackbar_role_unavailable">Call Screening role is not available on this device</string>
+    <string name="snackbar_permissions_granted">Phone permissions granted</string>
+    <string name="snackbar_permissions_denied">Some phone permissions were denied</string>
+</resources>

@@ -1,0 +1,6 @@
+{
+  "name": "CallGuard",
+  "description": "Caller ID and manual series/prefix spam call blocker built with Android CallScreeningService, Room, and Jetpack Compose.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
