@@ -1,10 +1,11 @@
 package com.example
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.activity.viewModels
 import com.example.data.local.CallGuardDatabase
 import com.example.data.repository.BlockedCallLogRepository
 import com.example.data.repository.DeviceCallLogRepository
@@ -16,30 +17,41 @@ import com.example.ui.CallGuardViewModel
 import com.example.ui.theme.CallGuardTheme
 
 class MainActivity : ComponentActivity() {
+
+    private val viewModel: CallGuardViewModel by viewModels {
+        val database = CallGuardDatabase.getInstance(applicationContext)
+        CallGuardViewModel.Factory(
+            prefixRepository = PrefixRepository(database.blockedPrefixDao()),
+            callLogRepository = BlockedCallLogRepository(database.blockedCallLogDao()),
+            deviceCallLogRepository = DeviceCallLogRepository(applicationContext),
+            spamPrefsRepository = SpamBlockerPreferencesRepository(applicationContext),
+            initialStatus = CallScreeningRoleHelper.getStatus(applicationContext)
+        )
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
-        val database = CallGuardDatabase.getInstance(applicationContext)
-        val prefixRepository = PrefixRepository(database.blockedPrefixDao())
-        val callLogRepository = BlockedCallLogRepository(database.blockedCallLogDao())
-        val deviceCallLogRepository = DeviceCallLogRepository(applicationContext)
-        val spamPrefsRepository = SpamBlockerPreferencesRepository(applicationContext)
-        val initialStatus = CallScreeningRoleHelper.getStatus(applicationContext)
+        handleDialIntent(intent)
 
         setContent {
             CallGuardTheme {
-                val viewModel: CallGuardViewModel = viewModel(
-                    factory = CallGuardViewModel.Factory(
-                        prefixRepository = prefixRepository,
-                        callLogRepository = callLogRepository,
-                        deviceCallLogRepository = deviceCallLogRepository,
-                        spamPrefsRepository = spamPrefsRepository,
-                        initialStatus = initialStatus
-                    )
-                )
                 CallGuardScreen(viewModel = viewModel)
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleDialIntent(intent)
+    }
+
+    private fun handleDialIntent(intent: Intent?) {
+        val action = intent?.action ?: return
+        if (action == Intent.ACTION_DIAL || action == Intent.ACTION_VIEW) {
+            val telNumber = intent.data?.schemeSpecificPart
+            viewModel.onExternalDialIntent(telNumber)
         }
     }
 }

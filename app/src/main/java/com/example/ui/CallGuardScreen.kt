@@ -160,6 +160,22 @@ fun CallGuardScreen(
         viewModel.selectTab(CallGuardTab.SHIELD)
     }
 
+    // Activity Result launcher for RoleManager.createRequestRoleIntent(ROLE_DIALER)
+    val defaultDialerRoleLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val updatedStatus = CallScreeningRoleHelper.getStatus(context)
+        viewModel.updateScreeningStatus(updatedStatus)
+        val messageRes = if (result.resultCode == Activity.RESULT_OK || updatedStatus.isDefaultDialer) {
+            R.string.snackbar_dialer_role_granted
+        } else {
+            R.string.snackbar_dialer_role_denied
+        }
+        coroutineScope.launch {
+            snackbarHostState.showSnackbar(context.getString(messageRes))
+        }
+    }
+
     // Activity Result launcher for RoleManager.createRequestRoleIntent(ROLE_CALL_SCREENING)
     val callScreeningRoleLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -397,10 +413,27 @@ fun CallGuardScreen(
                                     )
                                 }
 
-                                // Protection Status Banner + Default Caller ID & Spam Role CTA
+                                // Protection Status Banner + Default Phone (ROLE_DIALER) & Spam (ROLE_CALL_SCREENING) CTAs
                                 item(key = "protection_banner") {
                                     ProtectionStatusBanner(
                                         status = uiState.screeningStatus,
+                                        onRequestDefaultDialer = {
+                                            val dialerIntent =
+                                                CallScreeningRoleHelper.createRequestDefaultDialerIntent(
+                                                    context
+                                                )
+                                            if (dialerIntent != null) {
+                                                defaultDialerRoleLauncher.launch(dialerIntent)
+                                            } else {
+                                                coroutineScope.launch {
+                                                    snackbarHostState.showSnackbar(
+                                                        context.getString(
+                                                            R.string.snackbar_dialer_role_unavailable
+                                                        )
+                                                    )
+                                                }
+                                            }
+                                        },
                                         onRequestDefaultRole = {
                                             val roleIntent =
                                                 CallScreeningRoleHelper.createRequestCallScreeningRoleIntent(
@@ -600,11 +633,14 @@ private fun CallGuardHeader(
 @Composable
 private fun ProtectionStatusBanner(
     status: CallScreeningStatus,
+    onRequestDefaultDialer: () -> Unit,
     onRequestDefaultRole: () -> Unit,
     onRequestPhonePermissions: () -> Unit
 ) {
+    val isFullControl = status.hasFullTelecomControl
     val isProtected = status.isRoleHeld
-    val statusBadgeColor = if (isProtected) ShieldActiveEmerald else ShieldWarningAmber
+    val isDefaultDialer = status.isDefaultDialer
+    val statusBadgeColor = if (isFullControl) ShieldActiveEmerald else ShieldWarningAmber
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -655,7 +691,7 @@ private fun ProtectionStatusBanner(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Icon(
-                            imageVector = if (isProtected) {
+                            imageVector = if (isFullControl) {
                                 Icons.Rounded.GppGood
                             } else {
                                 Icons.Rounded.GppBad
@@ -666,6 +702,7 @@ private fun ProtectionStatusBanner(
                         )
                         Text(
                             text = when {
+                                isFullControl -> stringResource(R.string.status_full_control_title)
                                 isProtected -> stringResource(R.string.status_active_title)
                                 !status.isRoleSupported -> stringResource(R.string.status_unsupported_title)
                                 else -> stringResource(R.string.status_inactive_title)
@@ -680,6 +717,7 @@ private fun ProtectionStatusBanner(
                 // Explanatory Copy
                 Text(
                     text = when {
+                        isFullControl -> stringResource(R.string.status_full_control_subtitle)
                         isProtected -> stringResource(R.string.status_active_subtitle)
                         !status.isRoleSupported -> stringResource(R.string.status_unsupported_subtitle)
                         else -> stringResource(R.string.status_inactive_subtitle)
@@ -688,20 +726,56 @@ private fun ProtectionStatusBanner(
                     color = Color.White.copy(alpha = 0.86f)
                 )
 
-                // Primary Action Button: Request ROLE_CALL_SCREENING
+                // Primary Action 1: Request ROLE_DIALER (Default Phone / Dialer App)
                 Button(
-                    onClick = onRequestDefaultRole,
-                    enabled = status.isRoleSupported && !isProtected,
+                    onClick = onRequestDefaultDialer,
+                    enabled = status.isDialerRoleAvailable && !isDefaultDialer,
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isProtected) ShieldActiveEmerald else Color.White,
-                        contentColor = if (isProtected) Color.White else BannerNavyDeep,
+                        containerColor = if (isDefaultDialer) ShieldActiveEmerald else Color.White,
+                        contentColor = if (isDefaultDialer) Color.White else BannerNavyDeep,
                         disabledContainerColor = ShieldActiveEmerald.copy(alpha = 0.24f),
                         disabledContentColor = Color.White
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 50.dp)
+                        .testTag("request_default_dialer_button")
+                ) {
+                    Icon(
+                        imageVector = if (isDefaultDialer) {
+                            Icons.Rounded.VerifiedUser
+                        } else {
+                            Icons.Rounded.Call
+                        },
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isDefaultDialer) {
+                            stringResource(R.string.btn_default_dialer_active)
+                        } else {
+                            stringResource(R.string.btn_set_default_dialer)
+                        },
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+
+                // Primary Action 2: Request ROLE_CALL_SCREENING (Default Caller ID & Spam App)
+                Button(
+                    onClick = onRequestDefaultRole,
+                    enabled = status.isRoleSupported && !isProtected,
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isProtected) ShieldActiveEmerald else Color.White.copy(alpha = 0.16f),
+                        contentColor = Color.White,
+                        disabledContainerColor = ShieldActiveEmerald.copy(alpha = 0.24f),
+                        disabledContentColor = Color.White
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
                         .testTag("request_call_screening_role_button")
                 ) {
                     Icon(

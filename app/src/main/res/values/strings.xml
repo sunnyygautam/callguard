@@ -125,6 +125,30 @@
     <string name="snackbar_spam_blocker_enabled">Spam call blocker enabled</string>
     <string name="snackbar_spam_blocker_paused">Spam call blocker paused</string>
 
+    <!-- Default Dialer (ROLE_DIALER) & Full-Screen Call UI -->
+    <string name="status_full_control_title">Full Call &amp; Spam Protection Active</string>
+    <string name="status_full_control_subtitle">CallGuard is your default Phone and Caller ID &amp; Spam app, owning both screening and call screens.</string>
+    <string name="btn_set_default_dialer">Set as Default Phone / Dialer App</string>
+    <string name="btn_default_dialer_active">Default Phone / Dialer App Enabled</string>
+    <string name="snackbar_dialer_role_granted">CallGuard is now your default Phone &amp; Dialer app</string>
+    <string name="snackbar_dialer_role_denied">Default Phone / Dialer role was not granted</string>
+    <string name="snackbar_dialer_role_unavailable">Default Dialer role prompt is not available on this device</string>
+    <string name="incall_state_ringing">Incoming Call</string>
+    <string name="incall_state_dialing">Dialing…</string>
+    <string name="incall_state_connecting">Connecting…</string>
+    <string name="incall_state_active">On Call</string>
+    <string name="incall_state_holding">On Hold</string>
+    <string name="incall_state_disconnecting">Ending Call…</string>
+    <string name="incall_state_disconnected">Call Ended</string>
+    <string name="incall_action_answer">Answer</string>
+    <string name="incall_action_decline">Decline</string>
+    <string name="incall_action_end">End Call</string>
+    <string name="incall_action_mute">Mute</string>
+    <string name="incall_action_speaker">Speaker</string>
+    <string name="incall_action_hold">Hold</string>
+    <string name="incall_action_keypad">Keypad</string>
+    <string name="incall_protected_badge">CallGuard In-Call Shield</string>
+
     <!-- Feedback Snackbars -->
     <string name="snackbar_prefix_added">Blocked prefix %1$s added</string>
     <string name="snackbar_prefix_deleted">Removed prefix %1$s</string>

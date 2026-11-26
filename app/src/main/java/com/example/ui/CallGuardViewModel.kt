@@ -303,6 +303,20 @@ class CallGuardViewModel(
         phoneUiState.update { it.copy(dialerInput = "") }
     }
 
+    /**
+     * Handles incoming ACTION_DIAL or ACTION_VIEW `tel:` intents from other apps.
+     */
+    fun onExternalDialIntent(rawNumber: String?) {
+        val cleaned = rawNumber.orEmpty().trim()
+        phoneUiState.update { current ->
+            current.copy(
+                selectedTab = CallGuardTab.CALLS,
+                dialerInput = if (cleaned.isNotEmpty()) cleaned.take(20) else current.dialerInput
+            )
+        }
+        refreshDeviceCallHistory()
+    }
+
     fun onCallHistoryFilterSelected(filter: CallHistoryFilter) {
         phoneUiState.update { it.copy(callHistoryFilter = filter) }
     }
