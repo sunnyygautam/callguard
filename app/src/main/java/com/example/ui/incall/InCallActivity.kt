@@ -73,11 +73,10 @@ import com.example.telecom.ActiveCallUiState
 import com.example.telecom.CallAudioRecorder
 import com.example.telecom.CallLifecycleState
 import com.example.telecom.CallSessionManager
-import com.example.ui.theme.BannerNavyDeep
-import com.example.ui.theme.BannerNavyMid
 import com.example.ui.theme.CallGuardTheme
 import com.example.ui.theme.CrimsonError
 import com.example.ui.theme.JetBrainsMonoFontFamily
+import com.example.ui.theme.LocalCallGuardHeroColors
 import com.example.ui.theme.ShieldActiveEmerald
 import kotlinx.coroutines.delay
 import java.util.Locale
@@ -220,12 +219,18 @@ private fun InCallScreen(
         CallLifecycleState.DISCONNECTED -> stringResource(R.string.incall_state_disconnected)
     }
 
+    val heroColors = LocalCallGuardHeroColors.current
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(BannerNavyDeep, BannerNavyMid, Color(0xFF071322))
+                    colors = listOf(
+                        heroColors.deepSurface,
+                        heroColors.midSurface,
+                        heroColors.bottomSurface
+                    )
                 )
             )
             .windowInsetsPadding(WindowInsets.safeDrawing),
@@ -551,7 +556,7 @@ private fun InCallToggleControl(
     onClick: () -> Unit,
     testTag: String,
     activeContainerColor: Color = Color.White,
-    activeIconTint: Color = BannerNavyDeep
+    activeIconTint: Color = LocalCallGuardHeroColors.current.deepSurface
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,

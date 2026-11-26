@@ -44,6 +44,32 @@ class DeviceCallLogRepository(
         ) == PackageManager.PERMISSION_GRANTED
     }
 
+    fun hasWriteCallLogPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.WRITE_CALL_LOG
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    /**
+     * Deletes a single call entry from Android's system [CallLog.Calls] provider on [Dispatchers.IO].
+     * Returns true if at least one row was deleted, or false if permission is missing / delete failed.
+     */
+    suspend fun deleteCallLogEntry(callLogId: Long): Boolean =
+        withContext(Dispatchers.IO) {
+            if (!hasWriteCallLogPermission()) return@withContext false
+            try {
+                val deletedRows = context.contentResolver.delete(
+                    CallLog.Calls.CONTENT_URI,
+                    "${CallLog.Calls._ID} = ?",
+                    arrayOf(callLogId.toString())
+                )
+                deletedRows > 0
+            } catch (_: SecurityException) {
+                false
+            }
+        }
+
     /**
      * Queries up to [limit] most recent calls from Android's [CallLog.Calls] provider on [Dispatchers.IO].
      * Returns an empty list safely if permission has not been granted.

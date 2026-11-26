@@ -135,4 +135,87 @@ class DeviceContactsRepository(
 
             results
         }
+
+    /**
+     * Fetches matching phone contacts directly from Android's [ContactsContract] using
+     * [ContactsContract.CommonDataKinds.Phone.CONTENT_FILTER_URI] (which indexes both display
+     * names and phone numbers across formatting). Also performs a digit-stripped query when
+     * the user types formatted phone characters (spaces, dashes, country code).
+     */
+    suspend fun searchContacts(query: String, limit: Int = 50): List<DeviceContactEntry> =
+        withContext(Dispatchers.IO) {
+            val trimmed = query.trim()
+            if (trimmed.isEmpty() || !hasContactsPermission()) return@withContext emptyList()
+
+            val results = mutableListOf<DeviceContactEntry>()
+            val seenKeys = HashSet<String>()
+
+            queryFilteredContacts(trimmed, limit, results, seenKeys)
+
+            // If user entered formatted phone digits (e.g. "+1 (415) 555"), also query by raw digits
+            val normalizedDigits = PhoneNumberMatcher.normalize(trimmed).removePrefix("+")
+            if (normalizedDigits.length >= 2 && normalizedDigits != trimmed && results.size < limit) {
+                queryFilteredContacts(normalizedDigits, limit, results, seenKeys)
+            }
+
+            results
+        }
+
+    private fun queryFilteredContacts(
+        filterText: String,
+        limit: Int,
+        results: MutableList<DeviceContactEntry>,
+        seenKeys: MutableSet<String>
+    ) {
+        val filterUri = Uri.withAppendedPath(
+            ContactsContract.CommonDataKinds.Phone.CONTENT_FILTER_URI,
+            Uri.encode(filterText)
+        )
+        val projection = arrayOf(
+            ContactsContract.CommonDataKinds.Phone._ID,
+            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME_PRIMARY,
+            ContactsContract.CommonDataKinds.Phone.NUMBER
+        )
+        try {
+            context.contentResolver.query(
+                filterUri,
+                projection,
+                null,
+                null,
+                "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME_PRIMARY} ASC"
+            )?.use { cursor ->
+                val idIdx = cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone._ID)
+                val nameIdx = cursor.getColumnIndexOrThrow(
+                    ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME_PRIMARY
+                )
+                val numberIdx = cursor.getColumnIndexOrThrow(
+                    ContactsContract.CommonDataKinds.Phone.NUMBER
+                )
+
+                while (cursor.moveToNext() && results.size < limit) {
+                    val rawNumber = cursor.getString(numberIdx).orEmpty().trim()
+                    if (rawNumber.isBlank()) continue
+
+                    val displayName = cursor.getString(nameIdx)?.trim().orEmpty()
+                        .ifBlank { rawNumber }
+                    val normalized = PhoneNumberMatcher.normalize(rawNumber)
+                    val dedupeKey = "${displayName.lowercase()}|${normalized.ifEmpty { rawNumber }}"
+                    if (!seenKeys.add(dedupeKey)) continue
+
+                    results.add(
+                        DeviceContactEntry(
+                            id = cursor.getLong(idIdx),
+                            displayName = displayName,
+                            phoneNumber = rawNumber,
+                            normalizedNumber = normalized
+                        )
+                    )
+                }
+            }
+        } catch (_: SecurityException) {
+            // Permission revoked concurrently
+        } catch (_: Exception) {
+            // Ignore malformed URI edge cases
+        }
+    }
 }

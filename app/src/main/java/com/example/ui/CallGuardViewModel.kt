@@ -25,12 +25,18 @@ import com.example.data.repository.PrefixRepository
 import com.example.data.repository.RecordingExportResult
 import com.example.data.repository.SpamBlockerPreferencesRepository
 import com.example.data.repository.SpamBlockerSettings
+import com.example.ml.CallerCategoryResult
+import com.example.ml.OnDeviceCallSummarizer
 import com.example.ml.SpamMlAnalysisResult
 import com.example.ml.SpamMlAnalysisService
+import com.example.ml.UnknownCallerCategorizer
+import com.example.telecom.BatteryOptimizationStatus
 import com.example.telecom.CallRecordingPlayer
 import com.example.telecom.CallScreeningStatus
 import com.example.telecom.PhoneNumberMatcher
 import com.example.telecom.RecordingPlaybackState
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -76,6 +82,7 @@ data class CallGuardUiState(
     val prefixes: List<BlockedPrefixEntity> = emptyList(),
     val blockedCallLogs: List<BlockedCallLogEntity> = emptyList(),
     val callRecordings: List<CallRecordingEntity> = emptyList(),
+    val summarizingRecordingIds: Set<Long> = emptySet(),
     val recordingPlaybackState: RecordingPlaybackState = RecordingPlaybackState(),
     val hasRecordAudioPermission: Boolean = false,
     val last7DaysSummary: BlockedCallsSummary = DailyBlockedCallsAggregator.buildLast7Days(emptyList()),
@@ -86,8 +93,13 @@ data class CallGuardUiState(
         isRoleHeld = false,
         hasPhonePermissions = false
     ),
+    val batteryOptimizationStatus: BatteryOptimizationStatus = BatteryOptimizationStatus(),
     val dialerInput: String = "",
     val deviceContacts: List<DeviceContactEntry> = emptyList(),
+    val searchedContacts: List<DeviceContactEntry> = emptyList(),
+    val isSearchingContacts: Boolean = false,
+    val searchedNumberMlAnalysis: SpamMlAnalysisResult? = null,
+    val searchedNumberBlockedRule: BlockedPrefixEntity? = null,
     val contactsSearchQuery: String = "",
     val hasContactsPermission: Boolean = false,
     val isLoadingContacts: Boolean = false,
@@ -98,6 +110,7 @@ data class CallGuardUiState(
     val hasNotificationPermission: Boolean = true,
     val isLoadingCallHistory: Boolean = false,
     val callHistoryMlScores: Map<Long, SpamMlAnalysisResult> = emptyMap(),
+    val callHistoryCategories: Map<Long, CallerCategoryResult> = emptyMap(),
     val isExportingBackup: Boolean = false,
     val lastBackupResult: BackupExportResult.Success? = null
 ) {
@@ -128,9 +141,16 @@ sealed interface CallGuardEvent {
     data class PrefixDeleted(val entity: BlockedPrefixEntity) : CallGuardEvent
     data class BlockedCallDeleted(val log: BlockedCallLogEntity) : CallGuardEvent
     data class PrefilledBlockPrefix(val prefix: String) : CallGuardEvent
+    data class SwipeNumberBlocked(val entity: BlockedPrefixEntity) : CallGuardEvent
+    data class SwipeNumberAlreadyBlocked(val number: String) : CallGuardEvent
+    data class CallHistoryEntryDeleted(
+        val entry: DeviceCallLogEntry,
+        val deletedFromDevice: Boolean
+    ) : CallGuardEvent
     data class SpamBlockerToggled(val enabled: Boolean) : CallGuardEvent
     data class DoNotDisturbToggled(val enabled: Boolean) : CallGuardEvent
     data class CallRecordingToggled(val enabled: Boolean) : CallGuardEvent
+    data class RecordingSummarized(val label: String) : CallGuardEvent
     data class RecordingDeleted(val label: String) : CallGuardEvent
     data class RecordingExported(val fileName: String) : CallGuardEvent
     data class RecordingExportFailed(val reason: String) : CallGuardEvent
@@ -148,12 +168,14 @@ class CallGuardViewModel(
     private val prefixRepository: PrefixRepository,
     private val callLogRepository: BlockedCallLogRepository,
     private val callRecordingRepository: CallRecordingRepository,
+    private val onDeviceCallSummarizer: OnDeviceCallSummarizer,
     private val deviceCallLogRepository: DeviceCallLogRepository,
     private val deviceContactsRepository: DeviceContactsRepository,
     private val spamPrefsRepository: SpamBlockerPreferencesRepository,
     private val localBackupExporter: LocalBackupExporter,
     initialStatus: CallScreeningStatus,
-    initialHasRecordAudioPermission: Boolean = false
+    initialHasRecordAudioPermission: Boolean = false,
+    initialBatteryOptimizationStatus: BatteryOptimizationStatus = BatteryOptimizationStatus()
 ) : ViewModel() {
 
     private data class FormState(
@@ -168,12 +190,16 @@ class CallGuardViewModel(
         val isBlockedListScreenOpen: Boolean = false,
         val isCallRecordingsScreenOpen: Boolean = false,
         val hasRecordAudioPermission: Boolean = false,
+        val batteryOptimizationStatus: BatteryOptimizationStatus = BatteryOptimizationStatus(),
         val dialerInput: String = "",
         val deviceContacts: List<DeviceContactEntry> = emptyList(),
+        val searchedContacts: List<DeviceContactEntry> = emptyList(),
+        val isSearchingContacts: Boolean = false,
         val contactsSearchQuery: String = "",
         val hasContactsPermission: Boolean = false,
         val isLoadingContacts: Boolean = false,
         val deviceCallLogs: List<DeviceCallLogEntry> = emptyList(),
+        val dismissedCallLogIds: Set<Long> = emptySet(),
         val callHistoryFilter: CallHistoryFilter = CallHistoryFilter.ALL,
         val callHistorySearchQuery: String = "",
         val hasCallLogPermission: Boolean = false,
@@ -192,15 +218,19 @@ class CallGuardViewModel(
 
     private data class RecordingsSnapshot(
         val recordings: List<CallRecordingEntity>,
-        val playbackState: RecordingPlaybackState
+        val playbackState: RecordingPlaybackState,
+        val summarizingIds: Set<Long>
     )
 
     private val recordingPlayer = CallRecordingPlayer()
+    private val summarizingRecordingIds = MutableStateFlow<Set<Long>>(emptySet())
+    private var contactSearchJob: Job? = null
     private val formState = MutableStateFlow(FormState())
     private val screeningStatus = MutableStateFlow(initialStatus)
     private val phoneUiState = MutableStateFlow(
         PhoneUiState(
             hasRecordAudioPermission = initialHasRecordAudioPermission,
+            batteryOptimizationStatus = initialBatteryOptimizationStatus,
             hasContactsPermission = deviceContactsRepository.hasContactsPermission(),
             hasCallLogPermission = deviceCallLogRepository.hasCallLogPermission()
         )
@@ -220,9 +250,10 @@ class CallGuardViewModel(
 
     private val recordingsState = combine(
         callRecordingRepository.allRecordings,
-        recordingPlayer.playbackState
-    ) { recordings, playback ->
-        RecordingsSnapshot(recordings, playback)
+        recordingPlayer.playbackState,
+        summarizingRecordingIds
+    ) { recordings, playback, summarizingIds ->
+        RecordingsSnapshot(recordings, playback, summarizingIds)
     }
 
     val uiState: StateFlow<CallGuardUiState> = combine(
@@ -232,11 +263,64 @@ class CallGuardViewModel(
         recordingsState
     ) { core, status, phone, rec ->
         val activePrefixes = core.prefixes.filter { it.isActive }
+        val visibleCallLogs = if (phone.dismissedCallLogIds.isEmpty()) {
+            phone.deviceCallLogs
+        } else {
+            phone.deviceCallLogs.filterNot { it.id in phone.dismissedCallLogIds }
+        }
         val mlScores = SpamMlAnalysisService.analyzeCallHistoryBatch(
-            callLogs = phone.deviceCallLogs,
+            callLogs = visibleCallLogs,
             contacts = phone.deviceContacts,
             activeManualPrefixes = activePrefixes
         )
+        val callerCategories = UnknownCallerCategorizer.categorizeCallHistoryBatch(
+            callLogs = visibleCallLogs,
+            contacts = phone.deviceContacts
+        )
+
+        // When user searches a phone number under Home tab (>= 3 digits, no letters),
+        // compute immediate on-device ML spam risk & Blocked List match for that number.
+        val trimmedSearch = phone.contactsSearchQuery.trim()
+        val isPhoneNumberQuery = trimmedSearch.isNotEmpty() &&
+            trimmedSearch.none { it.isLetter() } &&
+            trimmedSearch.count { it.isDigit() } >= 3
+        val mergedSearchContacts = if (trimmedSearch.isBlank()) {
+            emptyList()
+        } else {
+            mergeUniqueContacts(
+                primary = phone.searchedContacts,
+                secondary = SuggestedContactsMatcher.filterContacts(
+                    contacts = phone.deviceContacts,
+                    query = trimmedSearch
+                )
+            )
+        }
+        val normalizedSearchedNumber = PhoneNumberMatcher.normalize(trimmedSearch)
+        val isSearchedNumberInContacts = isPhoneNumberQuery && mergedSearchContacts.any { contact ->
+            val contactNorm = contact.normalizedNumber.removePrefix("+")
+            val queryNorm = normalizedSearchedNumber.removePrefix("+")
+            contactNorm.isNotEmpty() && queryNorm.isNotEmpty() &&
+                (contactNorm == queryNorm ||
+                    (contactNorm.length >= 10 && queryNorm.length >= 10 &&
+                        contactNorm.takeLast(10) == queryNorm.takeLast(10)))
+        }
+        val searchedNumberBlockedRule = if (isPhoneNumberQuery) {
+            PhoneNumberMatcher.findMatchingPrefix(trimmedSearch, activePrefixes)
+        } else {
+            null
+        }
+        val searchedNumberMl = if (isPhoneNumberQuery) {
+            SpamMlAnalysisService.analyzeNumber(
+                rawNumber = trimmedSearch,
+                activeManualPrefixes = activePrefixes,
+                isHiddenOrPrivate = false,
+                isStirShakenFailed = false,
+                isKnownContact = isSearchedNumberInContacts
+            )
+        } else {
+            null
+        }
+
         CallGuardUiState(
             selectedTab = phone.selectedTab,
             isBlockedListScreenOpen = phone.isBlockedListScreenOpen,
@@ -248,23 +332,30 @@ class CallGuardViewModel(
             prefixes = core.prefixes,
             blockedCallLogs = core.callLogs,
             callRecordings = rec.recordings,
+            summarizingRecordingIds = rec.summarizingIds,
             recordingPlaybackState = rec.playbackState,
             hasRecordAudioPermission = phone.hasRecordAudioPermission,
             last7DaysSummary = DailyBlockedCallsAggregator.buildLast7Days(core.callLogs),
             spamBlockerSettings = core.spamSettings,
             screeningStatus = status,
+            batteryOptimizationStatus = phone.batteryOptimizationStatus,
             dialerInput = phone.dialerInput,
             deviceContacts = phone.deviceContacts,
+            searchedContacts = mergedSearchContacts,
+            isSearchingContacts = phone.isSearchingContacts,
+            searchedNumberMlAnalysis = searchedNumberMl,
+            searchedNumberBlockedRule = searchedNumberBlockedRule,
             contactsSearchQuery = phone.contactsSearchQuery,
             hasContactsPermission = phone.hasContactsPermission,
             isLoadingContacts = phone.isLoadingContacts,
-            deviceCallLogs = phone.deviceCallLogs,
+            deviceCallLogs = visibleCallLogs,
             callHistoryFilter = phone.callHistoryFilter,
             callHistorySearchQuery = phone.callHistorySearchQuery,
             hasCallLogPermission = phone.hasCallLogPermission,
             hasNotificationPermission = phone.hasNotificationPermission,
             isLoadingCallHistory = phone.isLoadingCallHistory,
             callHistoryMlScores = mlScores,
+            callHistoryCategories = callerCategories,
             isExportingBackup = phone.isExportingBackup,
             lastBackupResult = phone.lastBackupResult
         )
@@ -273,6 +364,7 @@ class CallGuardViewModel(
         started = SharingStarted.WhileSubscribed(5_000L),
         initialValue = CallGuardUiState(
             screeningStatus = initialStatus,
+            batteryOptimizationStatus = initialBatteryOptimizationStatus,
             hasRecordAudioPermission = initialHasRecordAudioPermission,
             hasContactsPermission = deviceContactsRepository.hasContactsPermission(),
             hasCallLogPermission = deviceCallLogRepository.hasCallLogPermission()
@@ -393,6 +485,91 @@ class CallGuardViewModel(
         }
     }
 
+    /**
+     * Immediately blocks a phone number triggered via swipe-to-block in Recent Call History,
+     * saving it directly into the Room Blocked List so [com.example.telecom.PrefixCallScreeningService]
+     * rejects future calls from this number right away.
+     */
+    fun quickBlockNumberFromSwipe(rawNumber: String, callerName: String?) {
+        val normalized = PhoneNumberMatcher.normalize(rawNumber)
+        val target = normalized.ifEmpty { rawNumber.trim() }
+        if (target.isEmpty()) return
+
+        val matchType = if (PhoneNumberMatcher.isValidExactNumber(target)) {
+            BlockedMatchType.EXACT_NUMBER
+        } else {
+            BlockedMatchType.PREFIX
+        }
+        val label = callerName?.trim()?.take(40).orEmpty().ifBlank { "Blocked from call history" }
+
+        viewModelScope.launch {
+            when (
+                val result = prefixRepository.addPrefix(
+                    rawPrefix = target,
+                    rawLabel = label,
+                    matchType = matchType
+                )
+            ) {
+                is AddPrefixResult.Success -> {
+                    _events.emit(CallGuardEvent.SwipeNumberBlocked(result.entity))
+                }
+                AddPrefixResult.DuplicatePrefix -> {
+                    _events.emit(CallGuardEvent.SwipeNumberAlreadyBlocked(target))
+                }
+                AddPrefixResult.EmptyInput,
+                AddPrefixResult.InvalidFormat -> {
+                    prefillBlockPrefixFromCall(rawNumber, callerName)
+                }
+            }
+        }
+    }
+
+    fun undoSwipeBlock(entity: BlockedPrefixEntity) {
+        viewModelScope.launch {
+            prefixRepository.deletePrefix(entity)
+        }
+    }
+
+    /**
+     * Deletes a call history entry triggered via swipe-to-delete. Removes the entry immediately
+     * from CallGuard's Recent Call History list and, when [deleteFromDeviceLog] is true and
+     * WRITE_CALL_LOG is granted, deletes it from Android's system CallLog provider as well.
+     */
+    fun deleteCallHistoryEntry(entry: DeviceCallLogEntry, deleteFromDeviceLog: Boolean) {
+        phoneUiState.update { state ->
+            state.copy(
+                dismissedCallLogIds = state.dismissedCallLogIds + entry.id,
+                deviceCallLogs = state.deviceCallLogs.filterNot { it.id == entry.id }
+            )
+        }
+        viewModelScope.launch {
+            val deletedFromDevice = if (deleteFromDeviceLog) {
+                deviceCallLogRepository.deleteCallLogEntry(entry.id)
+            } else {
+                false
+            }
+            _events.emit(
+                CallGuardEvent.CallHistoryEntryDeleted(
+                    entry = entry,
+                    deletedFromDevice = deletedFromDevice
+                )
+            )
+        }
+    }
+
+    fun undoDismissCallHistoryEntry(entry: DeviceCallLogEntry) {
+        phoneUiState.update { state ->
+            val restored = (state.deviceCallLogs + entry)
+                .distinctBy { it.id }
+                .sortedByDescending { it.dateMillis }
+            state.copy(
+                dismissedCallLogIds = state.dismissedCallLogIds - entry.id,
+                deviceCallLogs = restored
+            )
+        }
+        refreshDeviceCallHistory()
+    }
+
     fun addPrefix() {
         val snapshot = formState.value
         viewModelScope.launch {
@@ -502,7 +679,63 @@ class CallGuardViewModel(
     }
 
     fun onContactsSearchChanged(query: String) {
-        phoneUiState.update { it.copy(contactsSearchQuery = query.take(60)) }
+        val cleaned = query.take(60)
+        contactSearchJob?.cancel()
+        if (cleaned.isBlank()) {
+            phoneUiState.update {
+                it.copy(
+                    contactsSearchQuery = "",
+                    searchedContacts = emptyList(),
+                    isSearchingContacts = false
+                )
+            }
+            return
+        }
+
+        val hasContactsPerm = deviceContactsRepository.hasContactsPermission()
+        phoneUiState.update {
+            it.copy(
+                contactsSearchQuery = cleaned,
+                hasContactsPermission = hasContactsPerm,
+                isSearchingContacts = hasContactsPerm
+            )
+        }
+
+        if (!hasContactsPerm) return
+
+        contactSearchJob = viewModelScope.launch {
+            delay(160L)
+            val fetched = deviceContactsRepository.searchContacts(cleaned)
+            phoneUiState.update { current ->
+                if (current.contactsSearchQuery != cleaned) {
+                    current
+                } else {
+                    current.copy(
+                        searchedContacts = fetched,
+                        isSearchingContacts = false
+                    )
+                }
+            }
+        }
+    }
+
+    private fun mergeUniqueContacts(
+        primary: List<DeviceContactEntry>,
+        secondary: List<DeviceContactEntry>
+    ): List<DeviceContactEntry> {
+        if (primary.isEmpty()) return secondary
+        if (secondary.isEmpty()) return primary
+        val seen = HashSet<String>()
+        val merged = ArrayList<DeviceContactEntry>(primary.size + secondary.size)
+        for (entry in primary) {
+            val key = "${entry.displayName.lowercase()}|${entry.normalizedNumber.ifEmpty { entry.phoneNumber }}"
+            if (seen.add(key)) merged.add(entry)
+        }
+        for (entry in secondary) {
+            val key = "${entry.displayName.lowercase()}|${entry.normalizedNumber.ifEmpty { entry.phoneNumber }}"
+            if (seen.add(key)) merged.add(entry)
+        }
+        return merged
     }
 
     fun onCallHistoryFilterSelected(filter: CallHistoryFilter) {
@@ -515,6 +748,16 @@ class CallGuardViewModel(
 
     fun updateNotificationPermissionStatus(granted: Boolean) {
         phoneUiState.update { it.copy(hasNotificationPermission = granted) }
+    }
+
+    fun updateBatteryOptimizationStatus(status: BatteryOptimizationStatus) {
+        phoneUiState.update { it.copy(batteryOptimizationStatus = status) }
+    }
+
+    fun setBatteryOptimizationPromptDismissed(dismissed: Boolean) {
+        viewModelScope.launch {
+            spamPrefsRepository.setBatteryOptimizationPromptDismissed(dismissed)
+        }
     }
 
     fun refreshDeviceContacts() {
@@ -650,6 +893,60 @@ class CallGuardViewModel(
         recordingPlayer.seekTo(positionMs)
     }
 
+    /**
+     * Runs on-device audio decoding, offline speech recognition (Android 13+ when available),
+     * and local NLP summarization for a recorded call and saves the result in Room.
+     */
+    fun summarizeCallRecording(recording: CallRecordingEntity) {
+        if (recording.id in summarizingRecordingIds.value) return
+        viewModelScope.launch {
+            summarizingRecordingIds.update { it + recording.id }
+            try {
+                val summary = onDeviceCallSummarizer.summarizeRecording(recording)
+                callRecordingRepository.saveRecordingSummary(
+                    recordingId = recording.id,
+                    transcript = summary.transcript,
+                    summaryText = summary.summaryText,
+                    keyPoints = summary.keyPoints,
+                    topics = summary.topics,
+                    processingMode = summary.processingMode
+                )
+                val label = recording.callerName.ifBlank { recording.phoneNumber }
+                _events.emit(CallGuardEvent.RecordingSummarized(label))
+            } finally {
+                summarizingRecordingIds.update { it - recording.id }
+            }
+        }
+    }
+
+    /**
+     * Re-runs the pure on-device NLP summarizer over updated conversation transcript text.
+     */
+    fun resummarizeRecordingFromTranscript(
+        recording: CallRecordingEntity,
+        transcriptText: String
+    ) {
+        if (recording.id in summarizingRecordingIds.value) return
+        viewModelScope.launch {
+            summarizingRecordingIds.update { it + recording.id }
+            try {
+                val summary = onDeviceCallSummarizer.summarizeTranscriptText(recording, transcriptText)
+                callRecordingRepository.saveRecordingSummary(
+                    recordingId = recording.id,
+                    transcript = summary.transcript,
+                    summaryText = summary.summaryText,
+                    keyPoints = summary.keyPoints,
+                    topics = summary.topics,
+                    processingMode = summary.processingMode
+                )
+                val label = recording.callerName.ifBlank { recording.phoneNumber }
+                _events.emit(CallGuardEvent.RecordingSummarized(label))
+            } finally {
+                summarizingRecordingIds.update { it - recording.id }
+            }
+        }
+    }
+
     fun deleteCallRecording(recording: CallRecordingEntity) {
         recordingPlayer.stopIfPlaying(recording.id)
         viewModelScope.launch {
@@ -728,12 +1025,14 @@ class CallGuardViewModel(
         private val prefixRepository: PrefixRepository,
         private val callLogRepository: BlockedCallLogRepository,
         private val callRecordingRepository: CallRecordingRepository,
+        private val onDeviceCallSummarizer: OnDeviceCallSummarizer,
         private val deviceCallLogRepository: DeviceCallLogRepository,
         private val deviceContactsRepository: DeviceContactsRepository,
         private val spamPrefsRepository: SpamBlockerPreferencesRepository,
         private val localBackupExporter: LocalBackupExporter,
         private val initialStatus: CallScreeningStatus,
-        private val initialHasRecordAudioPermission: Boolean = false
+        private val initialHasRecordAudioPermission: Boolean = false,
+        private val initialBatteryOptimizationStatus: BatteryOptimizationStatus = BatteryOptimizationStatus()
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -742,12 +1041,14 @@ class CallGuardViewModel(
                     prefixRepository = prefixRepository,
                     callLogRepository = callLogRepository,
                     callRecordingRepository = callRecordingRepository,
+                    onDeviceCallSummarizer = onDeviceCallSummarizer,
                     deviceCallLogRepository = deviceCallLogRepository,
                     deviceContactsRepository = deviceContactsRepository,
                     spamPrefsRepository = spamPrefsRepository,
                     localBackupExporter = localBackupExporter,
                     initialStatus = initialStatus,
-                    initialHasRecordAudioPermission = initialHasRecordAudioPermission
+                    initialHasRecordAudioPermission = initialHasRecordAudioPermission,
+                    initialBatteryOptimizationStatus = initialBatteryOptimizationStatus
                 ) as T
             }
             throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")

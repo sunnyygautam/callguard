@@ -5,6 +5,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,31 +15,42 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.CallMade
 import androidx.compose.material.icons.automirrored.rounded.CallReceived
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.rounded.Subject
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.BatteryAlert
 import androidx.compose.material.icons.rounded.FiberManualRecord
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.VerifiedUser
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -60,6 +72,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -78,6 +92,7 @@ import com.example.telecom.RecordingPlaybackState
 import com.example.ui.theme.CrimsonError
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.ShieldActiveEmerald
+import com.example.ui.theme.ShieldWarningAmber
 import java.text.DateFormat
 import java.util.Date
 
@@ -100,7 +115,9 @@ fun CallRecordingControlCard(
     onToggleAutoRecord: (Boolean) -> Unit,
     onRequestMicPermission: () -> Unit,
     onOpenRecordingsLibrary: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isBatteryOptimizationUnrestricted: Boolean = true,
+    onRequestBatteryOptimization: () -> Unit = {}
 ) {
     val isEnabled = settings.callRecordingEnabled && hasRecordAudioPermission
     val switchCd = stringResource(R.string.call_recording_cd_master_switch)
@@ -290,6 +307,45 @@ fun CallRecordingControlCard(
                             modifier = Modifier.testTag("call_recording_auto_switch")
                         )
                     }
+
+                    if (!isBatteryOptimizationUnrestricted) {
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = ShieldWarningAmber.copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, ShieldWarningAmber.copy(alpha = 0.35f))
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.BatteryAlert,
+                                    contentDescription = null,
+                                    tint = ShieldWarningAmber,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = stringResource(R.string.battery_opt_recording_banner),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                TextButton(
+                                    onClick = onRequestBatteryOptimization,
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    modifier = Modifier.testTag("recording_battery_opt_exclude_button")
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.battery_opt_recording_banner_cta),
+                                        style = MaterialTheme.typography.labelMedium
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -355,10 +411,13 @@ fun CallRecordingControlCard(
 @Composable
 fun CallRecordingsScreen(
     recordings: List<CallRecordingEntity>,
+    summarizingRecordingIds: Set<Long>,
     playbackState: RecordingPlaybackState,
     onBack: () -> Unit,
     onTogglePlayPause: (CallRecordingEntity) -> Unit,
     onSeekTo: (Long) -> Unit,
+    onSummarizeRecording: (CallRecordingEntity) -> Unit,
+    onResummarizeFromTranscript: (CallRecordingEntity, String) -> Unit,
     onExportRecording: (CallRecordingEntity) -> Unit,
     onDeleteRecording: (CallRecordingEntity) -> Unit,
     onClearAllRecordings: () -> Unit,
@@ -369,8 +428,12 @@ fun CallRecordingsScreen(
     var searchQuery by remember { mutableStateOf("") }
     var filterMode by remember { mutableStateOf(RecordingsFilterMode.ALL) }
     var showClearDialog by remember { mutableStateOf(false) }
+    var activeSummaryRecordingId by remember { mutableStateOf<Long?>(null) }
 
     val totalBytes = remember(recordings) { recordings.sumOf { it.fileSizeBytes } }
+    val activeSummaryRecording = remember(recordings, activeSummaryRecordingId) {
+        recordings.firstOrNull { it.id == activeSummaryRecordingId }
+    }
 
     val filteredRecordings = remember(recordings, searchQuery, filterMode) {
         val query = searchQuery.trim().lowercase()
@@ -383,9 +446,23 @@ fun CallRecordingsScreen(
             val matchesQuery = query.isEmpty() ||
                 rec.phoneNumber.lowercase().contains(query) ||
                 rec.callerName.lowercase().contains(query) ||
-                rec.fileName.lowercase().contains(query)
+                rec.fileName.lowercase().contains(query) ||
+                rec.summaryText.lowercase().contains(query) ||
+                rec.transcript.lowercase().contains(query)
             matchesDirection && matchesQuery
         }
+    }
+
+    activeSummaryRecording?.let { recording ->
+        CallSummaryDetailDialog(
+            recording = recording,
+            isSummarizing = recording.id in summarizingRecordingIds,
+            onDismiss = { activeSummaryRecordingId = null },
+            onReanalyzeAudio = { onSummarizeRecording(recording) },
+            onResummarizeText = { updatedTranscript ->
+                onResummarizeFromTranscript(recording, updatedTranscript)
+            }
+        )
     }
 
     if (showClearDialog) {
@@ -629,6 +706,7 @@ fun CallRecordingsScreen(
                         recording = recording,
                         isActive = isActive,
                         isPlaying = isActive && playbackState.isPlaying,
+                        isSummarizing = recording.id in summarizingRecordingIds,
                         currentPositionMs = if (isActive) playbackState.currentPositionMs else 0L,
                         playerDurationMs = if (isActive && playbackState.durationMs > 0L) {
                             playbackState.durationMs
@@ -637,6 +715,8 @@ fun CallRecordingsScreen(
                         },
                         onTogglePlayPause = { onTogglePlayPause(recording) },
                         onSeekTo = onSeekTo,
+                        onSummarize = { onSummarizeRecording(recording) },
+                        onViewSummary = { activeSummaryRecordingId = recording.id },
                         onExport = { onExportRecording(recording) },
                         onDelete = { onDeleteRecording(recording) },
                         modifier = Modifier.animateItem()
@@ -656,10 +736,13 @@ private fun CallRecordingItemCard(
     recording: CallRecordingEntity,
     isActive: Boolean,
     isPlaying: Boolean,
+    isSummarizing: Boolean,
     currentPositionMs: Long,
     playerDurationMs: Long,
     onTogglePlayPause: () -> Unit,
     onSeekTo: (Long) -> Unit,
+    onSummarize: () -> Unit,
+    onViewSummary: () -> Unit,
     onExport: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
@@ -842,6 +925,409 @@ private fun CallRecordingItemCard(
                                 fontFamily = JetBrainsMonoFontFamily
                             ),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            // On-Device Conversation Summary Preview (shown once generated)
+            if (recording.hasSummary) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable(onClick = onViewSummary)
+                        .testTag("recording_summary_preview_${recording.id}"),
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.48f),
+                    border = BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.secondary.copy(alpha = 0.25f)
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.AutoAwesome,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = stringResource(R.string.recording_summary_badge_on_device),
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontWeight = FontWeight.SemiBold
+                                ),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            if (recording.topicsList.isNotEmpty()) {
+                                Spacer(modifier = Modifier.weight(1f))
+                                Surface(
+                                    shape = RoundedCornerShape(999.dp),
+                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+                                ) {
+                                    Text(
+                                        text = recording.topicsList.first(),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        Text(
+                            text = recording.summaryText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+
+            // On-Device Summarize / View Summary Action Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilledTonalButton(
+                    onClick = if (recording.hasSummary) onViewSummary else onSummarize,
+                    enabled = !isSummarizing,
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 44.dp)
+                        .testTag("recording_summarize_button_${recording.id}")
+                ) {
+                    if (isSummarizing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = stringResource(R.string.recording_btn_summarizing),
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    } else if (recording.hasSummary) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.Subject,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = stringResource(R.string.recording_btn_view_summary),
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Rounded.AutoAwesome,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = stringResource(R.string.recording_btn_summarize),
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CallSummaryDetailDialog(
+    recording: CallRecordingEntity,
+    isSummarizing: Boolean,
+    onDismiss: () -> Unit,
+    onReanalyzeAudio: () -> Unit,
+    onResummarizeText: (String) -> Unit
+) {
+    val displayTitle = recording.callerName.ifBlank { recording.phoneNumber }
+    var editableTranscript by remember(recording.id, recording.summaryGeneratedAt) {
+        mutableStateOf(recording.transcript)
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 24.dp)
+                .widthIn(max = 560.dp)
+                .testTag("call_summary_detail_dialog"),
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // Dialog Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.AutoAwesome,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.recording_summary_dialog_title),
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "$displayTitle • ${CallAudioRecorder.formatDurationMillis(recording.durationMillis)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.testTag("close_summary_dialog_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Close,
+                            contentDescription = stringResource(R.string.dialog_cancel)
+                        )
+                    }
+                }
+
+                // On-Device Privacy & Mode Pill
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.VerifiedUser,
+                            contentDescription = null,
+                            tint = ShieldActiveEmerald,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.recording_summary_privacy_note),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            if (recording.summaryMode.isNotBlank()) {
+                                Text(
+                                    text = recording.summaryMode,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Summary Overview
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = stringResource(R.string.recording_summary_section_overview),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                    ) {
+                        Text(
+                            text = recording.summaryText,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp)
+                        )
+                    }
+                }
+
+                // Key Points & Action Items
+                if (recording.keyPointsList.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = stringResource(R.string.recording_summary_section_keypoints),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            recording.keyPointsList.forEach { point ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.Top
+                                ) {
+                                    Text(
+                                        text = "•",
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontWeight = FontWeight.Bold
+                                        ),
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        text = point,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Detected Topics
+                if (recording.topicsList.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = stringResource(R.string.recording_summary_section_topics),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            recording.topicsList.forEach { topic ->
+                                Surface(
+                                    shape = RoundedCornerShape(999.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer
+                                ) {
+                                    Text(
+                                        text = topic,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                // Editable Transcript / Conversation Notes for On-Device Re-Summarization
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = stringResource(R.string.recording_summary_section_transcript),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = editableTranscript,
+                        onValueChange = { editableTranscript = it },
+                        placeholder = {
+                            Text(
+                                text = stringResource(R.string.recording_summary_transcript_placeholder),
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        },
+                        minLines = 3,
+                        maxLines = 6,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("recording_summary_transcript_input")
+                    )
+                }
+
+                // Footer Buttons
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onReanalyzeAudio,
+                        enabled = !isSummarizing,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp)
+                            .testTag("reanalyze_audio_button")
+                    ) {
+                        if (isSummarizing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Rounded.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = stringResource(R.string.recording_summary_btn_reanalyze_audio),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    Button(
+                        onClick = { onResummarizeText(editableTranscript) },
+                        enabled = !isSummarizing && editableTranscript.isNotBlank(),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp)
+                            .testTag("resummarize_text_button")
+                    ) {
+                        Text(
+                            text = stringResource(R.string.recording_summary_btn_resummarize_text),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }

@@ -14,6 +14,8 @@ import com.example.data.repository.DeviceCallLogRepository
 import com.example.data.repository.DeviceContactsRepository
 import com.example.data.repository.PrefixRepository
 import com.example.data.repository.SpamBlockerPreferencesRepository
+import com.example.ml.OnDeviceCallSummarizer
+import com.example.telecom.BatteryOptimizationHelper
 import com.example.telecom.CallAudioRecorder
 import com.example.telecom.CallNotificationManager
 import com.example.telecom.CallScreeningRoleHelper
@@ -35,6 +37,7 @@ class MainActivity : ComponentActivity() {
             prefixRepository = PrefixRepository(database.blockedPrefixDao()),
             callLogRepository = blockedCallLogRepository,
             callRecordingRepository = callRecordingRepository,
+            onDeviceCallSummarizer = OnDeviceCallSummarizer(applicationContext),
             deviceCallLogRepository = DeviceCallLogRepository(applicationContext),
             deviceContactsRepository = deviceContactsRepository,
             spamPrefsRepository = SpamBlockerPreferencesRepository(applicationContext),
@@ -44,7 +47,8 @@ class MainActivity : ComponentActivity() {
                 deviceContactsRepository = deviceContactsRepository
             ),
             initialStatus = CallScreeningRoleHelper.getStatus(applicationContext),
-            initialHasRecordAudioPermission = CallAudioRecorder.hasRecordAudioPermission(applicationContext)
+            initialHasRecordAudioPermission = CallAudioRecorder.hasRecordAudioPermission(applicationContext),
+            initialBatteryOptimizationStatus = BatteryOptimizationHelper.getStatus(applicationContext)
         )
     }
 

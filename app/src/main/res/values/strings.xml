@@ -323,6 +323,71 @@
     <string name="snackbar_recording_exported">Saved recording %1$s</string>
     <string name="snackbar_recording_export_failed">Could not save recording: %1$s</string>
 
+    <!-- Home Tab: Live Phone Number & Contact Search Results -->
+    <string name="home_search_number_result_header">Number Search Result</string>
+    <string name="home_search_contacts_header">Phone Contacts (%1$d)</string>
+    <string name="home_search_contacts_fetching">Searching phone contacts…</string>
+    <string name="home_search_saved_contact_match">Saved contact: %1$s</string>
+    <string name="home_search_unsaved_number">Not saved in contacts</string>
+    <string name="home_search_blocked_rule_match">Matches Blocked List (%1$s)</string>
+    <string name="home_search_btn_call">Call</string>
+    <string name="home_search_btn_block">Block</string>
+
+    <!-- On-Device Call Recording Conversation Summary -->
+    <string name="recording_btn_summarize">Summarize</string>
+    <string name="recording_btn_summarizing">Summarizing…</string>
+    <string name="recording_btn_view_summary">View Summary</string>
+    <string name="recording_summary_badge_on_device">On-Device Summary</string>
+    <string name="recording_summary_dialog_title">Conversation Summary</string>
+    <string name="recording_summary_privacy_note">Processed 100% on-device — audio never leaves your phone.</string>
+    <string name="recording_summary_section_overview">Summary</string>
+    <string name="recording_summary_section_keypoints">Key Points &amp; Action Items</string>
+    <string name="recording_summary_section_topics">Detected Topics</string>
+    <string name="recording_summary_section_transcript">Transcript / Conversation Notes</string>
+    <string name="recording_summary_transcript_placeholder">Add or refine spoken conversation text to regenerate an on-device summary…</string>
+    <string name="recording_summary_btn_resummarize_text">Re-Summarize Text</string>
+    <string name="recording_summary_btn_reanalyze_audio">Re-Analyze Audio</string>
+    <string name="snackbar_recording_summarized">On-device summary ready for %1$s</string>
+
+    <!-- Battery Optimization Exclusion & Background Stability -->
+    <string name="battery_opt_card_title">Background Stability</string>
+    <string name="battery_opt_status_unrestricted">Unrestricted</string>
+    <string name="battery_opt_status_restricted">Optimized</string>
+    <string name="battery_opt_status_bg_restricted">Restricted</string>
+    <string name="battery_opt_body_unrestricted">CallGuard is excluded from battery optimizations so Call Screening and Call Recording remain reliable in the background.</string>
+    <string name="battery_opt_body_restricted">Android battery optimization can delay CallScreeningService or stop call recording when the screen locks. Exclude CallGuard to keep background protection active.</string>
+    <string name="battery_opt_body_bg_restricted">Background restriction is enabled in Android settings. Allow unrestricted battery usage so incoming spam screening and call recording do not stop.</string>
+    <string name="battery_opt_btn_exclude">Exclude from Battery Optimization</string>
+    <string name="battery_opt_btn_open_settings">Battery Settings</string>
+    <string name="battery_opt_btn_manage">Manage</string>
+    <string name="battery_opt_dialog_title">Keep Protection Running in Background</string>
+    <string name="battery_opt_dialog_body">To prevent Android from pausing CallGuard while your phone is locked or idle, allow unrestricted battery usage.</string>
+    <string name="battery_opt_dialog_point_screening_title">Instant Call Screening</string>
+    <string name="battery_opt_dialog_point_screening_desc">Keeps CallScreeningService responsive for spam blocking, Blocked List rules, and Do Not Disturb.</string>
+    <string name="battery_opt_dialog_point_recording_title">Stable Call Recording</string>
+    <string name="battery_opt_dialog_point_recording_desc">Prevents Android Doze mode from interrupting active call recording during long or locked-screen calls.</string>
+    <string name="battery_opt_dialog_confirm">Allow Unrestricted</string>
+    <string name="battery_opt_dialog_not_now">Not Now</string>
+    <string name="battery_opt_recording_banner">Battery optimization is active and may interrupt background call recording.</string>
+    <string name="battery_opt_recording_banner_cta">Exclude</string>
+    <string name="snackbar_battery_opt_granted">CallGuard excluded from battery optimizations</string>
+    <string name="snackbar_battery_opt_still_restricted">Battery optimization is still enabled for CallGuard</string>
+    <string name="snackbar_battery_opt_unavailable">Battery optimization settings are unavailable on this device</string>
+
+    <!-- Unknown Caller Auto-Categorization & Recent Call History Swipe Gestures -->
+    <string name="caller_category_frequent">Frequent Caller</string>
+    <string name="caller_category_business">Potential Business</string>
+    <string name="caller_category_occasional">Occasional Caller</string>
+    <string name="caller_category_one_time">One-time contact</string>
+    <string name="caller_category_with_count">%1$s • %2$d×</string>
+    <string name="call_history_swipe_hint">Swipe → Block · ← Delete</string>
+    <string name="call_history_swipe_action_block">Block</string>
+    <string name="call_history_swipe_action_delete">Delete</string>
+    <string name="snackbar_swipe_blocked">Blocked %1$s</string>
+    <string name="snackbar_swipe_already_blocked">%1$s is already in your Blocked List</string>
+    <string name="snackbar_call_history_deleted">Deleted call entry for %1$s</string>
+    <string name="snackbar_call_history_hidden">Removed %1$s from recent list</string>
+
     <!-- Feedback Snackbars -->
     <string name="snackbar_prefix_added">Blocked prefix %1$s added</string>
     <string name="snackbar_prefix_deleted">Removed prefix %1$s</string>

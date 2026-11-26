@@ -20,7 +20,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         BlockedCallLogEntity::class,
         CallRecordingEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class CallGuardDatabase : RoomDatabase() {
@@ -112,6 +112,21 @@ abstract class CallGuardDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Preserves existing recordings when upgrading from v5 to v6 by adding on-device
+         * transcript and conversation summary columns to `call_recordings`.
+         */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `call_recordings` ADD COLUMN `transcript` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `call_recordings` ADD COLUMN `summary_text` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `call_recordings` ADD COLUMN `summary_key_points` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `call_recordings` ADD COLUMN `summary_topics` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `call_recordings` ADD COLUMN `summary_mode` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `call_recordings` ADD COLUMN `summary_generated_at` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         @Volatile
         private var instance: CallGuardDatabase? = null
 
@@ -122,7 +137,13 @@ abstract class CallGuardDatabase : RoomDatabase() {
                     CallGuardDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(
+                        MIGRATION_1_2,
+                        MIGRATION_2_3,
+                        MIGRATION_3_4,
+                        MIGRATION_4_5,
+                        MIGRATION_5_6
+                    )
                     .build()
                     .also { db ->
                         instance = db

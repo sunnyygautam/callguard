@@ -31,6 +31,26 @@ class CallRecordingRepository(
         dao.insert(recording)
     }
 
+    suspend fun saveRecordingSummary(
+        recordingId: Long,
+        transcript: String,
+        summaryText: String,
+        keyPoints: List<String>,
+        topics: List<String>,
+        processingMode: String,
+        generatedAt: Long = System.currentTimeMillis()
+    ) = withContext(Dispatchers.IO) {
+        dao.updateSummary(
+            recordingId = recordingId,
+            transcript = transcript.trim(),
+            summaryText = summaryText.trim(),
+            summaryKeyPoints = keyPoints.joinToString("\n"),
+            summaryTopics = topics.joinToString(", "),
+            summaryMode = processingMode,
+            generatedAt = generatedAt
+        )
+    }
+
     suspend fun deleteRecording(recording: CallRecordingEntity) = withContext(Dispatchers.IO) {
         dao.delete(recording)
         runCatching {

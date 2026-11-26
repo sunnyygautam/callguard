@@ -8,7 +8,7 @@ import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
 
 /**
- * Room DAO for managing persisted call recording metadata.
+ * Room DAO for managing persisted call recording metadata and on-device conversation summaries.
  */
 @Dao
 interface CallRecordingDao {
@@ -21,6 +21,28 @@ interface CallRecordingDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(recording: CallRecordingEntity): Long
+
+    @Query(
+        """
+        UPDATE call_recordings
+        SET transcript = :transcript,
+            summary_text = :summaryText,
+            summary_key_points = :summaryKeyPoints,
+            summary_topics = :summaryTopics,
+            summary_mode = :summaryMode,
+            summary_generated_at = :generatedAt
+        WHERE id = :recordingId
+        """
+    )
+    suspend fun updateSummary(
+        recordingId: Long,
+        transcript: String,
+        summaryText: String,
+        summaryKeyPoints: String,
+        summaryTopics: String,
+        summaryMode: String,
+        generatedAt: Long
+    )
 
     @Delete
     suspend fun delete(recording: CallRecordingEntity)

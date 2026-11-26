@@ -84,14 +84,15 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import android.content.ActivityNotFoundException
 import com.example.R
 import com.example.data.local.CallRecordingEntity
+import com.example.telecom.BatteryOptimizationHelper
 import com.example.telecom.CallAudioRecorder
 import com.example.telecom.CallNotificationManager
 import com.example.telecom.CallScreeningRoleHelper
 import com.example.telecom.CallScreeningStatus
-import com.example.ui.theme.BannerNavyDeep
-import com.example.ui.theme.BannerNavyMid
+import com.example.ui.theme.LocalCallGuardHeroColors
 import com.example.ui.theme.ShieldActiveEmerald
 import com.example.ui.theme.ShieldWarningAmber
 import kotlinx.coroutines.launch
@@ -114,10 +115,12 @@ fun CallGuardScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     var showClearHistoryDialog by remember { mutableStateOf(false) }
+    var showBatteryRationaleDialog by remember { mutableStateOf(false) }
 
-    // Re-check role, phone permissions, mic permission, notification permission, contacts, and call history on resume.
+    // Re-check role, phone permissions, mic permission, notification permission, battery status, contacts, and call history on resume.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         viewModel.updateScreeningStatus(CallScreeningRoleHelper.getStatus(context))
+        viewModel.updateBatteryOptimizationStatus(BatteryOptimizationHelper.getStatus(context))
         viewModel.updateNotificationPermissionStatus(
             CallNotificationManager.hasNotificationPermission(context)
         )
@@ -144,10 +147,19 @@ fun CallGuardScreen(
     ) { result ->
         val updatedStatus = CallScreeningRoleHelper.getStatus(context)
         viewModel.updateScreeningStatus(updatedStatus)
-        val messageRes = if (result.resultCode == Activity.RESULT_OK || updatedStatus.isDefaultDialer) {
+        val granted = result.resultCode == Activity.RESULT_OK || updatedStatus.isDefaultDialer
+        val messageRes = if (granted) {
             R.string.snackbar_dialer_role_granted
         } else {
             R.string.snackbar_dialer_role_denied
+        }
+        if (granted && BatteryOptimizationHelper.shouldShowGuidedPrompt(
+                status = BatteryOptimizationHelper.getStatus(context),
+                isPromptDismissed = uiState.spamBlockerSettings.batteryOptimizationPromptDismissed,
+                isBackgroundFeatureActive = true
+            )
+        ) {
+            showBatteryRationaleDialog = true
         }
         coroutineScope.launch {
             snackbarHostState.showSnackbar(context.getString(messageRes))
@@ -160,13 +172,66 @@ fun CallGuardScreen(
     ) { result ->
         val updatedStatus = CallScreeningRoleHelper.getStatus(context)
         viewModel.updateScreeningStatus(updatedStatus)
-        val messageRes = if (result.resultCode == Activity.RESULT_OK || updatedStatus.isRoleHeld) {
+        val granted = result.resultCode == Activity.RESULT_OK || updatedStatus.isRoleHeld
+        val messageRes = if (granted) {
             R.string.snackbar_role_granted
         } else {
             R.string.snackbar_role_denied
         }
+        if (granted && BatteryOptimizationHelper.shouldShowGuidedPrompt(
+                status = BatteryOptimizationHelper.getStatus(context),
+                isPromptDismissed = uiState.spamBlockerSettings.batteryOptimizationPromptDismissed,
+                isBackgroundFeatureActive = true
+            )
+        ) {
+            showBatteryRationaleDialog = true
+        }
         coroutineScope.launch {
             snackbarHostState.showSnackbar(context.getString(messageRes))
+        }
+    }
+
+    // Activity Result launcher for Android's Battery Optimization exclusion prompt / settings
+    val batteryOptimizationLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        val updatedBatteryStatus = BatteryOptimizationHelper.getStatus(context)
+        viewModel.updateBatteryOptimizationStatus(updatedBatteryStatus)
+        val msgRes = if (updatedBatteryStatus.isUnrestricted) {
+            R.string.snackbar_battery_opt_granted
+        } else {
+            R.string.snackbar_battery_opt_still_restricted
+        }
+        coroutineScope.launch {
+            snackbarHostState.showSnackbar(context.getString(msgRes))
+        }
+    }
+
+    val launchBatteryExemptionPrompt: () -> Unit = {
+        try {
+            batteryOptimizationLauncher.launch(
+                BatteryOptimizationHelper.createRequestExemptionIntent(context)
+            )
+        } catch (_: ActivityNotFoundException) {
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar(
+                    context.getString(R.string.snackbar_battery_opt_unavailable)
+                )
+            }
+        }
+    }
+
+    val launchBatterySettingsScreen: () -> Unit = {
+        try {
+            batteryOptimizationLauncher.launch(
+                BatteryOptimizationHelper.createBatterySettingsIntent(context)
+            )
+        } catch (_: ActivityNotFoundException) {
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar(
+                    context.getString(R.string.snackbar_battery_opt_unavailable)
+                )
+            }
         }
     }
 
@@ -259,6 +324,14 @@ fun CallGuardScreen(
         if (granted) {
             if (pendingEnableRecordingAfterMicPrompt) {
                 viewModel.setCallRecordingEnabled(true)
+                if (BatteryOptimizationHelper.shouldShowGuidedPrompt(
+                        status = BatteryOptimizationHelper.getStatus(context),
+                        isPromptDismissed = uiState.spamBlockerSettings.batteryOptimizationPromptDismissed,
+                        isBackgroundFeatureActive = true
+                    )
+                ) {
+                    showBatteryRationaleDialog = true
+                }
             }
         } else {
             coroutineScope.launch {
@@ -336,6 +409,47 @@ fun CallGuardScreen(
                         duration = SnackbarDuration.Short
                     )
                 }
+                is CallGuardEvent.SwipeNumberBlocked -> {
+                    val result = snackbarHostState.showSnackbar(
+                        message = context.getString(
+                            R.string.snackbar_swipe_blocked,
+                            event.entity.prefixString
+                        ),
+                        actionLabel = context.getString(R.string.snackbar_undo),
+                        duration = SnackbarDuration.Short
+                    )
+                    if (result == SnackbarResult.ActionPerformed) {
+                        viewModel.undoSwipeBlock(event.entity)
+                    }
+                }
+                is CallGuardEvent.SwipeNumberAlreadyBlocked -> {
+                    snackbarHostState.showSnackbar(
+                        message = context.getString(
+                            R.string.snackbar_swipe_already_blocked,
+                            event.number
+                        ),
+                        duration = SnackbarDuration.Short
+                    )
+                }
+                is CallGuardEvent.CallHistoryEntryDeleted -> {
+                    val label = event.entry.cachedName
+                        ?: event.entry.number.ifBlank { context.getString(R.string.call_unknown_number) }
+                    if (event.deletedFromDevice) {
+                        snackbarHostState.showSnackbar(
+                            message = context.getString(R.string.snackbar_call_history_deleted, label),
+                            duration = SnackbarDuration.Short
+                        )
+                    } else {
+                        val result = snackbarHostState.showSnackbar(
+                            message = context.getString(R.string.snackbar_call_history_hidden, label),
+                            actionLabel = context.getString(R.string.snackbar_undo),
+                            duration = SnackbarDuration.Short
+                        )
+                        if (result == SnackbarResult.ActionPerformed) {
+                            viewModel.undoDismissCallHistoryEntry(event.entry)
+                        }
+                    }
+                }
                 is CallGuardEvent.SpamBlockerToggled -> {
                     val msgRes = if (event.enabled) {
                         R.string.snackbar_spam_blocker_enabled
@@ -387,6 +501,12 @@ fun CallGuardScreen(
                         duration = SnackbarDuration.Long
                     )
                 }
+                is CallGuardEvent.RecordingSummarized -> {
+                    snackbarHostState.showSnackbar(
+                        message = context.getString(R.string.snackbar_recording_summarized, event.label),
+                        duration = SnackbarDuration.Short
+                    )
+                }
                 CallGuardEvent.RecordingsCleared -> {
                     snackbarHostState.showSnackbar(
                         message = context.getString(R.string.snackbar_recordings_cleared),
@@ -430,6 +550,19 @@ fun CallGuardScreen(
             onConfirmClear = {
                 showClearHistoryDialog = false
                 viewModel.clearBlockedCallHistory()
+            }
+        )
+    }
+
+    if (showBatteryRationaleDialog) {
+        BatteryOptimizationRationaleDialog(
+            onConfirmExclude = {
+                showBatteryRationaleDialog = false
+                launchBatteryExemptionPrompt()
+            },
+            onDismiss = {
+                showBatteryRationaleDialog = false
+                viewModel.setBatteryOptimizationPromptDismissed(true)
             }
         )
     }
@@ -581,10 +714,13 @@ fun CallGuardScreen(
                         } else if (uiState.isCallRecordingsScreenOpen) {
                             CallRecordingsScreen(
                                 recordings = uiState.callRecordings,
+                                summarizingRecordingIds = uiState.summarizingRecordingIds,
                                 playbackState = uiState.recordingPlaybackState,
                                 onBack = viewModel::closeCallRecordingsScreen,
                                 onTogglePlayPause = viewModel::togglePlayRecording,
                                 onSeekTo = viewModel::seekRecordingPlayback,
+                                onSummarizeRecording = viewModel::summarizeCallRecording,
+                                onResummarizeFromTranscript = viewModel::resummarizeRecordingFromTranscript,
                                 onExportRecording = { recording ->
                                     pendingExportRecording = recording
                                     exportRecordingDocumentLauncher.launch(recording.fileName)
@@ -666,6 +802,15 @@ fun CallGuardScreen(
                                     )
                                 }
 
+                                // Battery Optimization Exclusion Card (Background Stability for Screening & Recording)
+                                item(key = "battery_optimization_card") {
+                                    BatteryOptimizationCard(
+                                        status = uiState.batteryOptimizationStatus,
+                                        onRequestExemption = { showBatteryRationaleDialog = true },
+                                        onOpenBatterySettings = launchBatterySettingsScreen
+                                    )
+                                }
+
                                 // Do Not Disturb (Contacts Only) Mode Toggle Card
                                 item(key = "do_not_disturb_card") {
                                     DoNotDisturbCard(
@@ -707,6 +852,8 @@ fun CallGuardScreen(
                                         hasRecordAudioPermission = uiState.hasRecordAudioPermission,
                                         recordingCount = uiState.callRecordingCount,
                                         totalSizeBytes = uiState.callRecordingsTotalBytes,
+                                        isBatteryOptimizationUnrestricted = uiState.batteryOptimizationStatus.isUnrestricted,
+                                        onRequestBatteryOptimization = { showBatteryRationaleDialog = true },
                                         onToggleEnabled = { enable ->
                                             if (enable && !uiState.hasRecordAudioPermission) {
                                                 pendingEnableRecordingAfterMicPrompt = true
@@ -715,6 +862,14 @@ fun CallGuardScreen(
                                                 )
                                             } else {
                                                 viewModel.setCallRecordingEnabled(enable)
+                                                if (enable && BatteryOptimizationHelper.shouldShowGuidedPrompt(
+                                                        status = uiState.batteryOptimizationStatus,
+                                                        isPromptDismissed = uiState.spamBlockerSettings.batteryOptimizationPromptDismissed,
+                                                        isBackgroundFeatureActive = true
+                                                    )
+                                                ) {
+                                                    showBatteryRationaleDialog = true
+                                                }
                                             }
                                         },
                                         onToggleAutoRecord = viewModel::setAutoRecordCalls,
@@ -831,6 +986,8 @@ fun CallGuardScreen(
                             onCallHistorySearchChanged = viewModel::onCallHistorySearchChanged,
                             onRefreshCallHistory = viewModel::refreshDeviceCallHistory,
                             onQuickBlockNumber = viewModel::prefillBlockPrefixFromCall,
+                            onSwipeBlockNumber = viewModel::quickBlockNumberFromSwipe,
+                            onDeleteCallHistoryEntry = viewModel::deleteCallHistoryEntry,
                             onShowMessage = { message ->
                                 coroutineScope.launch {
                                     snackbarHostState.showSnackbar(message)
@@ -932,11 +1089,12 @@ private fun ProtectionStatusBanner(
     val isProtected = status.isRoleHeld
     val isDefaultDialer = status.isDefaultDialer
     val statusBadgeColor = if (isFullControl) ShieldActiveEmerald else ShieldWarningAmber
+    val heroColors = LocalCallGuardHeroColors.current
 
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = BannerNavyDeep),
+        colors = CardDefaults.cardColors(containerColor = heroColors.deepSurface),
         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
     ) {
         Box(modifier = Modifier.fillMaxWidth()) {
@@ -949,16 +1107,16 @@ private fun ProtectionStatusBanner(
                 modifier = Modifier.matchParentSize()
             )
 
-            // High-contrast scrim for crisp readability across left & bottom
+            // High-contrast scrim harmonized with the user's dynamic wallpaper theme
             Box(
                 modifier = Modifier
                     .matchParentSize()
                     .background(
                         Brush.horizontalGradient(
                             colors = listOf(
-                                BannerNavyDeep.copy(alpha = 0.94f),
-                                BannerNavyMid.copy(alpha = 0.80f),
-                                BannerNavyDeep.copy(alpha = 0.55f)
+                                heroColors.deepSurface.copy(alpha = 0.94f),
+                                heroColors.midSurface.copy(alpha = 0.80f),
+                                heroColors.deepSurface.copy(alpha = 0.55f)
                             )
                         )
                     )
@@ -1024,7 +1182,7 @@ private fun ProtectionStatusBanner(
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (isDefaultDialer) ShieldActiveEmerald else Color.White,
-                        contentColor = if (isDefaultDialer) Color.White else BannerNavyDeep,
+                        contentColor = if (isDefaultDialer) Color.White else heroColors.deepSurface,
                         disabledContainerColor = ShieldActiveEmerald.copy(alpha = 0.24f),
                         disabledContentColor = Color.White
                     ),

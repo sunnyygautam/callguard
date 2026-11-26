@@ -29,7 +29,8 @@ data class SpamBlockerSettings(
     val vibrationEnabled: Boolean = true,
     val notificationsEnabled: Boolean = true,
     val callRecordingEnabled: Boolean = false,
-    val autoRecordCalls: Boolean = false
+    val autoRecordCalls: Boolean = false,
+    val batteryOptimizationPromptDismissed: Boolean = false
 )
 
 /**
@@ -51,6 +52,7 @@ class SpamBlockerPreferencesRepository(
         val NOTIFICATIONS_ENABLED = booleanPreferencesKey("notifications_enabled")
         val CALL_RECORDING_ENABLED = booleanPreferencesKey("call_recording_enabled")
         val AUTO_RECORD_CALLS = booleanPreferencesKey("auto_record_calls")
+        val BATTERY_OPT_PROMPT_DISMISSED = booleanPreferencesKey("battery_opt_prompt_dismissed")
     }
 
     val settings: Flow<SpamBlockerSettings> = context.spamBlockerDataStore.data.map { prefs ->
@@ -65,7 +67,8 @@ class SpamBlockerPreferencesRepository(
             vibrationEnabled = prefs[Keys.VIBRATION_ENABLED] ?: true,
             notificationsEnabled = prefs[Keys.NOTIFICATIONS_ENABLED] ?: true,
             callRecordingEnabled = prefs[Keys.CALL_RECORDING_ENABLED] ?: false,
-            autoRecordCalls = prefs[Keys.AUTO_RECORD_CALLS] ?: false
+            autoRecordCalls = prefs[Keys.AUTO_RECORD_CALLS] ?: false,
+            batteryOptimizationPromptDismissed = prefs[Keys.BATTERY_OPT_PROMPT_DISMISSED] ?: false
         )
     }
 
@@ -123,5 +126,9 @@ class SpamBlockerPreferencesRepository(
                 prefs[Keys.CALL_RECORDING_ENABLED] = true
             }
         }
+    }
+
+    suspend fun setBatteryOptimizationPromptDismissed(dismissed: Boolean) {
+        context.spamBlockerDataStore.edit { it[Keys.BATTERY_OPT_PROMPT_DISMISSED] = dismissed }
     }
 }

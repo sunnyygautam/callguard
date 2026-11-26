@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -35,14 +36,24 @@ import androidx.compose.material.icons.automirrored.rounded.CallMissed
 import androidx.compose.material.icons.automirrored.rounded.CallReceived
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.rounded.Business
 import androidx.compose.material.icons.rounded.Call
+import androidx.compose.material.icons.rounded.GppBad
+import androidx.compose.material.icons.rounded.PersonOutline
 import androidx.compose.material.icons.rounded.PhoneDisabled
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.VerifiedUser
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -52,13 +63,17 @@ import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -72,13 +87,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.R
+import com.example.data.local.BlockedPrefixEntity
 import com.example.data.repository.DeviceCallLogEntry
 import com.example.data.repository.DeviceCallType
 import com.example.data.repository.DeviceContactEntry
+import com.example.ml.CallerCategory
+import com.example.ml.CallerCategoryResult
 import com.example.ml.SpamMlAnalysisResult
 import com.example.telecom.PhoneNumberMatcher
 import com.example.ui.theme.PrefixMonoStyle
 import com.example.ui.theme.ShieldActiveEmerald
+import com.example.ui.theme.ShieldWarningAmber
 
 /**
  * Google Phone–inspired Home tab featuring a single top "Search contacts by name or number"
@@ -94,13 +113,16 @@ internal fun HomeContactsScreen(
     onCallHistorySearchChanged: (String) -> Unit,
     onRefreshCallHistory: () -> Unit,
     onQuickBlockNumber: (String, String?) -> Unit,
+    onSwipeBlockNumber: (String, String?) -> Unit,
+    onDeleteCallHistoryEntry: (DeviceCallLogEntry, Boolean) -> Unit,
     onShowMessage: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     var pendingCallNumber by remember { mutableStateOf<String?>(null) }
-    var inspectedCallEntry by remember {
-        mutableStateOf<Pair<DeviceCallLogEntry, SpamMlAnalysisResult>?>(null)
+    var pendingDeleteCallEntry by remember { mutableStateOf<DeviceCallLogEntry?>(null) }
+    var inspectedSpamItem by remember {
+        mutableStateOf<InspectedSpamNumber?>(null)
     }
 
     val callPhonePermissionLauncher = rememberLauncherForActivityResult(
@@ -136,6 +158,31 @@ internal fun HomeContactsScreen(
         }
     }
 
+    val writeCallLogPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        val entryToDelete = pendingDeleteCallEntry
+        pendingDeleteCallEntry = null
+        if (entryToDelete != null) {
+            onDeleteCallHistoryEntry(entryToDelete, isGranted)
+        }
+    }
+
+    fun requestDeleteCallHistoryEntry(entry: DeviceCallLogEntry): Boolean {
+        val hasWriteCallLog = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.WRITE_CALL_LOG
+        ) == PackageManager.PERMISSION_GRANTED
+        return if (hasWriteCallLog) {
+            onDeleteCallHistoryEntry(entry, true)
+            true
+        } else {
+            pendingDeleteCallEntry = entry
+            writeCallLogPermissionLauncher.launch(Manifest.permission.WRITE_CALL_LOG)
+            false
+        }
+    }
+
     fun initiateCall(rawNumber: String) {
         val cleaned = rawNumber.trim()
         if (cleaned.isEmpty()) return
@@ -165,16 +212,9 @@ internal fun HomeContactsScreen(
         onCallHistorySearchChanged(query)
     }
 
-    val filteredContacts = remember(uiState.deviceContacts, unifiedSearchQuery) {
-        if (unifiedSearchQuery.isBlank()) {
-            emptyList()
-        } else {
-            SuggestedContactsMatcher.filterContacts(
-                contacts = uiState.deviceContacts,
-                query = unifiedSearchQuery
-            )
-        }
-    }
+    val searchedContacts = uiState.searchedContacts
+    val searchedNumberAnalysis = uiState.searchedNumberMlAnalysis
+    val searchedNumberBlockedRule = uiState.searchedNumberBlockedRule
 
     val filteredCalls = remember(
         uiState.deviceCallLogs,
@@ -188,17 +228,14 @@ internal fun HomeContactsScreen(
         )
     }
 
-    inspectedCallEntry?.let { (entry, analysis) ->
-        val title = entry.cachedName ?: entry.number.ifBlank {
-            stringResource(R.string.call_unknown_number)
-        }
+    inspectedSpamItem?.let { inspected ->
         SpamAnalysisDetailDialog(
-            displayTitle = title,
-            phoneNumber = entry.number,
-            analysis = analysis,
-            onDismiss = { inspectedCallEntry = null },
-            onBlockPrefix = if (entry.number.isNotBlank()) {
-                { onQuickBlockNumber(entry.number, entry.cachedName) }
+            displayTitle = inspected.displayTitle,
+            phoneNumber = inspected.phoneNumber,
+            analysis = inspected.analysis,
+            onDismiss = { inspectedSpamItem = null },
+            onBlockPrefix = if (inspected.phoneNumber.isNotBlank()) {
+                { onQuickBlockNumber(inspected.phoneNumber, inspected.contactName) }
             } else {
                 null
             }
@@ -315,8 +352,46 @@ internal fun HomeContactsScreen(
                 }
             }
 
-            // Show matching contacts ONLY while the user is actively searching
+            // Show live Number Search Result & Phone Contacts ONLY while the user is actively searching
             if (isSearching) {
+                if (searchedNumberAnalysis != null) {
+                    val trimmedNumber = unifiedSearchQuery.trim()
+                    val matchedContact = searchedContacts.firstOrNull {
+                        PhoneNumberMatcher.normalize(it.phoneNumber) ==
+                            PhoneNumberMatcher.normalize(trimmedNumber)
+                    } ?: searchedContacts.firstOrNull()
+
+                    item(key = "home_number_search_result_header") {
+                        Text(
+                            text = stringResource(R.string.home_search_number_result_header),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                        )
+                    }
+
+                    item(key = "home_number_search_result_card") {
+                        NumberSearchResultCard(
+                            searchedNumber = trimmedNumber,
+                            matchedContact = matchedContact,
+                            blockedRule = searchedNumberBlockedRule,
+                            mlAnalysis = searchedNumberAnalysis,
+                            onInspectMlScore = {
+                                inspectedSpamItem = InspectedSpamNumber(
+                                    displayTitle = matchedContact?.displayName ?: trimmedNumber,
+                                    phoneNumber = trimmedNumber,
+                                    analysis = searchedNumberAnalysis,
+                                    contactName = matchedContact?.displayName
+                                )
+                            },
+                            onCall = { initiateCall(trimmedNumber) },
+                            onBlock = {
+                                onQuickBlockNumber(trimmedNumber, matchedContact?.displayName)
+                            }
+                        )
+                    }
+                }
+
                 if (!uiState.hasContactsPermission) {
                     item(key = "search_contacts_permission_banner") {
                         Surface(
@@ -353,18 +428,44 @@ internal fun HomeContactsScreen(
                             }
                         }
                     }
-                } else if (filteredContacts.isNotEmpty()) {
+                } else if (uiState.isSearchingContacts || searchedContacts.isNotEmpty()) {
                     item(key = "search_contacts_matches_header") {
-                        Text(
-                            text = stringResource(R.string.contacts_section_header),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 4.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = stringResource(
+                                    R.string.home_search_contacts_header,
+                                    searchedContacts.size
+                                ),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (uiState.isSearchingContacts) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(14.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.home_search_contacts_fetching),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
                     }
 
                     items(
-                        items = filteredContacts,
+                        items = searchedContacts,
                         key = { "contact_${it.id}" }
                     ) { contact ->
                         DeviceContactRow(
@@ -379,19 +480,33 @@ internal fun HomeContactsScreen(
                 }
             }
 
-            // Recent Call History Section Header
+            // Recent Call History Section Header + Swipe Gesture Hint
             if (!isSearching || filteredCalls.isNotEmpty() || !uiState.hasCallLogPermission) {
                 item(key = "call_history_header") {
-                    Text(
-                        text = stringResource(R.string.call_history_header),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = stringResource(R.string.call_history_header),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (uiState.hasCallLogPermission && filteredCalls.isNotEmpty()) {
+                            Text(
+                                text = stringResource(R.string.call_history_swipe_hint),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f)
+                            )
+                        }
+                    }
                 }
             }
 
-            // Recent Call History Permission Gate / Empty / Rows
+            // Recent Call History Permission Gate / Empty / Swipeable Rows
             if (!uiState.hasCallLogPermission) {
                 item(key = "call_log_permission_card") {
                     CallLogPermissionCard(
@@ -405,7 +520,11 @@ internal fun HomeContactsScreen(
                     item(key = "empty_device_call_history") {
                         EmptyDeviceCallHistoryCard()
                     }
-                } else if (filteredContacts.isEmpty()) {
+                } else if (
+                    searchedContacts.isEmpty() &&
+                    searchedNumberAnalysis == null &&
+                    !uiState.isSearchingContacts
+                ) {
                     item(key = "empty_device_call_history") {
                         EmptySearchCard(
                             title = stringResource(R.string.call_history_search_empty_title),
@@ -424,16 +543,28 @@ internal fun HomeContactsScreen(
                     key = { "device_call_${it.id}" }
                 ) { entry ->
                     val mlScore = uiState.callHistoryMlScores[entry.id]
-                    DeviceCallLogRow(
+                    val callerCategory = uiState.callHistoryCategories[entry.id]
+                    val fallbackTitle = entry.cachedName ?: entry.number.ifBlank {
+                        stringResource(R.string.call_unknown_number)
+                    }
+                    SwipeableCallLogItem(
                         entry = entry,
                         mlAnalysis = mlScore,
+                        callerCategory = callerCategory,
                         onInspectMlScore = {
                             if (mlScore != null) {
-                                inspectedCallEntry = entry to mlScore
+                                inspectedSpamItem = InspectedSpamNumber(
+                                    displayTitle = fallbackTitle,
+                                    phoneNumber = entry.number,
+                                    analysis = mlScore,
+                                    contactName = entry.cachedName
+                                )
                             }
                         },
                         onCallBack = { initiateCall(entry.number) },
                         onBlockPrefix = { onQuickBlockNumber(entry.number, entry.cachedName) },
+                        onSwipeBlock = { onSwipeBlockNumber(entry.number, entry.cachedName) },
+                        onSwipeDelete = { requestDeleteCallHistoryEntry(entry) },
                         modifier = Modifier.animateItem()
                     )
                 }
@@ -441,6 +572,193 @@ internal fun HomeContactsScreen(
 
             item(key = "home_bottom_spacer") {
                 Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+    }
+}
+
+private data class InspectedSpamNumber(
+    val displayTitle: String,
+    val phoneNumber: String,
+    val analysis: SpamMlAnalysisResult,
+    val contactName: String?
+)
+
+@Composable
+private fun NumberSearchResultCard(
+    searchedNumber: String,
+    matchedContact: DeviceContactEntry?,
+    blockedRule: BlockedPrefixEntity?,
+    mlAnalysis: SpamMlAnalysisResult,
+    onInspectMlScore: () -> Unit,
+    onCall: () -> Unit,
+    onBlock: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val isBlocked = blockedRule != null
+    OutlinedCard(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("home_number_search_result_card"),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isBlocked) {
+                MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)
+            } else {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.24f)
+            }
+        ),
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (isBlocked) {
+                MaterialTheme.colorScheme.error.copy(alpha = 0.45f)
+            } else {
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+            }
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (isBlocked) {
+                                MaterialTheme.colorScheme.errorContainer
+                            } else {
+                                MaterialTheme.colorScheme.primaryContainer
+                            }
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (isBlocked) {
+                            Icons.Rounded.GppBad
+                        } else {
+                            Icons.Rounded.VerifiedUser
+                        },
+                        contentDescription = null,
+                        tint = if (isBlocked) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        },
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Text(
+                        text = searchedNumber,
+                        style = PrefixMonoStyle,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = if (matchedContact != null) {
+                            stringResource(
+                                R.string.home_search_saved_contact_match,
+                                matchedContact.displayName
+                            )
+                        } else {
+                            stringResource(R.string.home_search_unsaved_number)
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SpamProbabilityBadge(
+                    probabilityPercent = mlAnalysis.probabilityPercent,
+                    riskTier = mlAnalysis.riskTier,
+                    onClick = onInspectMlScore,
+                    modifier = Modifier.testTag("home_number_search_spam_badge")
+                )
+
+                if (blockedRule != null) {
+                    Surface(
+                        shape = RoundedCornerShape(999.dp),
+                        color = MaterialTheme.colorScheme.errorContainer
+                    ) {
+                        Text(
+                            text = stringResource(
+                                R.string.home_search_blocked_rule_match,
+                                blockedRule.prefixString
+                            ),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                FilledTonalButton(
+                    onClick = onCall,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 44.dp)
+                        .testTag("home_number_search_call_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Call,
+                        contentDescription = null,
+                        tint = ShieldActiveEmerald,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(text = stringResource(R.string.home_search_btn_call))
+                }
+
+                OutlinedButton(
+                    onClick = onBlock,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    ),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 44.dp)
+                        .testTag("home_number_search_block_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Block,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(text = stringResource(R.string.home_search_btn_block))
+                }
             }
         }
     }
@@ -539,10 +857,130 @@ private fun DeviceContactRow(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeableCallLogItem(
+    entry: DeviceCallLogEntry,
+    mlAnalysis: SpamMlAnalysisResult?,
+    callerCategory: CallerCategoryResult?,
+    onInspectMlScore: () -> Unit,
+    onCallBack: () -> Unit,
+    onBlockPrefix: () -> Unit,
+    onSwipeBlock: () -> Unit,
+    onSwipeDelete: () -> Boolean,
+    modifier: Modifier = Modifier
+) {
+    val currentOnSwipeBlock by rememberUpdatedState(onSwipeBlock)
+    val currentOnSwipeDelete by rememberUpdatedState(onSwipeDelete)
+    val canBlock = entry.number.isNotBlank()
+
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { targetValue ->
+            when (targetValue) {
+                SwipeToDismissBoxValue.StartToEnd -> {
+                    if (canBlock) {
+                        currentOnSwipeBlock()
+                    }
+                    // Snap card back into place after blocking so user sees updated risk status
+                    false
+                }
+                SwipeToDismissBoxValue.EndToStart -> {
+                    currentOnSwipeDelete()
+                }
+                SwipeToDismissBoxValue.Settled -> false
+            }
+        }
+    )
+
+    SwipeToDismissBox(
+        state = dismissState,
+        enableDismissFromStartToEnd = canBlock,
+        enableDismissFromEndToStart = true,
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("swipeable_call_row_${entry.id}"),
+        backgroundContent = {
+            val direction = dismissState.dismissDirection
+            val isBlockSwipe = direction == SwipeToDismissBoxValue.StartToEnd
+            val isDeleteSwipe = direction == SwipeToDismissBoxValue.EndToStart
+
+            val bgColor = when {
+                isBlockSwipe -> ShieldWarningAmber.copy(alpha = 0.22f)
+                isDeleteSwipe -> MaterialTheme.colorScheme.error
+                else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+            }
+            val contentColor = when {
+                isBlockSwipe -> MaterialTheme.colorScheme.error
+                isDeleteSwipe -> MaterialTheme.colorScheme.onError
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(bgColor)
+                    .padding(horizontal = 20.dp),
+                contentAlignment = if (isBlockSwipe) Alignment.CenterStart else Alignment.CenterEnd
+            ) {
+                if (isBlockSwipe) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Block,
+                            contentDescription = stringResource(R.string.call_history_swipe_action_block),
+                            tint = contentColor,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Text(
+                            text = stringResource(R.string.call_history_swipe_action_block),
+                            style = MaterialTheme.typography.titleSmall.copy(
+                                fontWeight = FontWeight.SemiBold
+                            ),
+                            color = contentColor
+                        )
+                    }
+                } else if (isDeleteSwipe) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.call_history_swipe_action_delete),
+                            style = MaterialTheme.typography.titleSmall.copy(
+                                fontWeight = FontWeight.SemiBold
+                            ),
+                            color = contentColor
+                        )
+                        Icon(
+                            imageVector = Icons.Outlined.DeleteOutline,
+                            contentDescription = stringResource(R.string.call_history_swipe_action_delete),
+                            tint = contentColor,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+            }
+        }
+    ) {
+        DeviceCallLogRow(
+            entry = entry,
+            mlAnalysis = mlAnalysis,
+            callerCategory = callerCategory,
+            onInspectMlScore = onInspectMlScore,
+            onCallBack = onCallBack,
+            onBlockPrefix = onBlockPrefix
+        )
+    }
+}
+
 @Composable
 private fun DeviceCallLogRow(
     entry: DeviceCallLogEntry,
     mlAnalysis: SpamMlAnalysisResult?,
+    callerCategory: CallerCategoryResult?,
     onInspectMlScore: () -> Unit,
     onCallBack: () -> Unit,
     onBlockPrefix: () -> Unit,
@@ -650,15 +1088,30 @@ private fun DeviceCallLogRow(
                     overflow = TextOverflow.Ellipsis
                 )
 
-                if (mlAnalysis != null) {
-                    SpamProbabilityBadge(
-                        probabilityPercent = mlAnalysis.probabilityPercent,
-                        riskTier = mlAnalysis.riskTier,
-                        onClick = onInspectMlScore,
+                if (mlAnalysis != null || callerCategory != null) {
+                    Row(
                         modifier = Modifier
-                            .padding(top = 2.dp)
-                            .testTag("call_row_spam_badge_${entry.id}")
-                    )
+                            .fillMaxWidth()
+                            .padding(top = 3.dp)
+                            .horizontalScroll(rememberScrollState()),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        if (callerCategory != null) {
+                            CallerCategoryBadge(
+                                categoryResult = callerCategory,
+                                modifier = Modifier.testTag("call_row_category_badge_${entry.id}")
+                            )
+                        }
+                        if (mlAnalysis != null) {
+                            SpamProbabilityBadge(
+                                probabilityPercent = mlAnalysis.probabilityPercent,
+                                riskTier = mlAnalysis.riskTier,
+                                onClick = onInspectMlScore,
+                                modifier = Modifier.testTag("call_row_spam_badge_${entry.id}")
+                            )
+                        }
+                    }
                 }
             }
 
@@ -695,6 +1148,75 @@ private fun DeviceCallLogRow(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun CallerCategoryBadge(
+    categoryResult: CallerCategoryResult,
+    modifier: Modifier = Modifier
+) {
+    val (icon, labelRes, containerColor, contentColor) = when (categoryResult.category) {
+        CallerCategory.FREQUENT_CALLER -> CallTypeVisual(
+            Icons.Rounded.Repeat,
+            R.string.caller_category_frequent,
+            MaterialTheme.colorScheme.primaryContainer,
+            MaterialTheme.colorScheme.onPrimaryContainer
+        )
+        CallerCategory.POTENTIAL_BUSINESS -> CallTypeVisual(
+            Icons.Rounded.Business,
+            R.string.caller_category_business,
+            MaterialTheme.colorScheme.tertiaryContainer,
+            MaterialTheme.colorScheme.onTertiaryContainer
+        )
+        CallerCategory.OCCASIONAL_CALLER -> CallTypeVisual(
+            Icons.Rounded.Schedule,
+            R.string.caller_category_occasional,
+            MaterialTheme.colorScheme.secondaryContainer,
+            MaterialTheme.colorScheme.onSecondaryContainer
+        )
+        CallerCategory.ONE_TIME_CONTACT -> CallTypeVisual(
+            Icons.Rounded.PersonOutline,
+            R.string.caller_category_one_time,
+            MaterialTheme.colorScheme.surfaceVariant,
+            MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+
+    val baseLabel = stringResource(labelRes)
+    val badgeText = if (categoryResult.interactionCount > 1) {
+        stringResource(
+            R.string.caller_category_with_count,
+            baseLabel,
+            categoryResult.interactionCount
+        )
+    } else {
+        baseLabel
+    }
+
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(999.dp),
+        color = containerColor
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = contentColor,
+                modifier = Modifier.size(13.dp)
+            )
+            Text(
+                text = badgeText,
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                color = contentColor,
+                maxLines = 1
+            )
         }
     }
 }
