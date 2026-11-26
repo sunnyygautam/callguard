@@ -165,8 +165,9 @@ fun CallGuardScreen(
         viewModel.refreshDeviceCallHistory()
     }
 
-    // Pressing Back from secondary tabs (Keypad / Shield) returns cleanly to Home.
-    BackHandler(enabled = uiState.selectedTab != CallGuardTab.HOME) {
+    // Pressing Back from secondary tabs (Keypad / Shield) returns cleanly to Home
+    // when not inside the Shield Blocked List sub-screen (which handles its own BackHandler).
+    BackHandler(enabled = uiState.selectedTab != CallGuardTab.HOME && !uiState.isBlockedListScreenOpen) {
         viewModel.selectTab(CallGuardTab.HOME)
     }
 
@@ -530,10 +531,24 @@ fun CallGuardScreen(
 
                 when (uiState.selectedTab) {
                     CallGuardTab.SHIELD -> {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.TopCenter
-                        ) {
+                        if (uiState.isBlockedListScreenOpen) {
+                            BlockedListScreen(
+                                uiState = uiState,
+                                onBack = viewModel::closeBlockedListScreen,
+                                onMatchTypeSelected = viewModel::onBlockedMatchTypeSelected,
+                                onInputChanged = viewModel::onPrefixInputChanged,
+                                onLabelChanged = viewModel::onLabelInputChanged,
+                                onApplyQuickPrefix = viewModel::applyQuickPrefix,
+                                onAddClick = viewModel::addPrefix,
+                                onToggleRuleActive = viewModel::togglePrefixActive,
+                                onDeleteRule = viewModel::deletePrefix,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.TopCenter
+                            ) {
                             LazyColumn(
                                 modifier = Modifier
                                     .widthIn(max = 600.dp)
@@ -683,49 +698,15 @@ fun CallGuardScreen(
                                     )
                                 }
 
-                                // Manual Prefix Entry Form Card
-                                item(key = "add_prefix_form") {
-                                    AddPrefixFormCard(
-                                        prefixInput = uiState.prefixInput,
-                                        labelInput = uiState.labelInput,
-                                        prefixError = uiState.prefixErrorRes?.let { stringResource(it) },
-                                        onPrefixChanged = viewModel::onPrefixInputChanged,
-                                        onLabelChanged = viewModel::onLabelInputChanged,
-                                        onApplyQuickPrefix = viewModel::applyQuickPrefix,
-                                        onAddClick = {
-                                            focusManager.clearFocus()
-                                            viewModel.addPrefix()
-                                        }
-                                    )
-                                }
-
-                                // Saved Prefixes Section Header
-                                item(key = "saved_prefixes_header") {
-                                    SavedPrefixesSectionHeader(
+                                // Dedicated Blocked List Screen Entry Card (Numbers & Prefixes)
+                                item(key = "blocked_list_nav_card") {
+                                    BlockedListNavigationCard(
+                                        totalCount = uiState.prefixes.size,
                                         activeCount = uiState.activePrefixCount,
-                                        totalCount = uiState.prefixes.size
+                                        exactNumberCount = uiState.exactBlockedNumberCount,
+                                        prefixCount = uiState.blockedPrefixSeriesCount,
+                                        onOpenBlockedList = viewModel::openBlockedListScreen
                                     )
-                                }
-
-                                // Empty State OR Saved Prefix Rules List
-                                if (uiState.prefixes.isEmpty()) {
-                                    item(key = "empty_state") {
-                                        EmptyPrefixesCard()
-                                    }
-                                } else {
-                                    items(
-                                        items = uiState.prefixes,
-                                        key = { it.id }
-                                    ) { prefixRule ->
-                                        BlockedPrefixRow(
-                                            entity = prefixRule,
-                                            onToggleActive = { isActive ->
-                                                viewModel.togglePrefixActive(prefixRule.id, isActive)
-                                            },
-                                            onDelete = { viewModel.deletePrefix(prefixRule) },
-                                            modifier = Modifier.animateItem()
-                                        )
-                                    }
                                 }
 
                                 // Blocked Call History Section Header
@@ -760,6 +741,7 @@ fun CallGuardScreen(
                                     Spacer(modifier = Modifier.height(16.dp))
                                 }
                             }
+                        }
                         }
                     }
 

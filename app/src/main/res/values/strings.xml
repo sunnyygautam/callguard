@@ -250,6 +250,35 @@
     <string name="snackbar_dnd_disabled">Do Not Disturb disabled</string>
     <string name="snackbar_dnd_contacts_required">Contacts permission is required to allow saved contacts during Do Not Disturb</string>
 
+    <!-- Dedicated Blocked List Screen (Shield Tab) -->
+    <string name="blocked_list_card_title">Blocked List</string>
+    <string name="blocked_list_card_subtitle_empty">Add specific phone numbers or prefixes to automatically block incoming calls.</string>
+    <string name="blocked_list_card_subtitle_counts">%1$d exact numbers • %2$d prefixes blocked</string>
+    <string name="blocked_list_open_cd">Open Blocked List manager</string>
+    <string name="blocked_list_back_cd">Back to Shield</string>
+    <string name="blocked_list_screen_title">Blocked List</string>
+    <string name="blocked_list_screen_subtitle">Numbers &amp; prefixes screened before ringing</string>
+    <string name="blocked_list_add_title">Add to Blocked List</string>
+    <string name="blocked_list_add_hint_number">Incoming calls matching this exact phone number will be blocked automatically.</string>
+    <string name="blocked_list_add_hint_prefix">Any incoming call starting with this prefix will be blocked automatically.</string>
+    <string name="blocked_list_mode_number">Phone Number</string>
+    <string name="blocked_list_mode_prefix">Prefix / Series</string>
+    <string name="blocked_list_label_number">Phone Number</string>
+    <string name="blocked_list_placeholder_number">e.g. +1 415-555-0192</string>
+    <string name="blocked_list_btn_add_number">Block Phone Number</string>
+    <string name="error_exact_number_invalid">Enter a valid phone number (at least 7 digits).</string>
+    <string name="blocked_list_saved_header">Saved Blocked Entries</string>
+    <string name="blocked_list_search_placeholder">Filter blocked numbers or prefixes…</string>
+    <string name="blocked_list_filter_all">All</string>
+    <string name="blocked_list_filter_numbers">Numbers</string>
+    <string name="blocked_list_filter_prefixes">Prefixes</string>
+    <string name="blocked_list_badge_exact">Exact</string>
+    <string name="blocked_list_badge_prefix">Prefix</string>
+    <string name="blocked_list_default_number_label">Blocked phone number</string>
+    <string name="blocked_list_empty_title">Your Blocked List Is Empty</string>
+    <string name="blocked_list_empty_body">Add a specific phone number or a spam prefix above. CallGuard checks this Room database before allowing any incoming call.</string>
+    <string name="blocked_list_empty_filter">No saved entries match your current filter.</string>
+
     <!-- Feedback Snackbars -->
     <string name="snackbar_prefix_added">Blocked prefix %1$s added</string>
     <string name="snackbar_prefix_deleted">Removed prefix %1$s</string>

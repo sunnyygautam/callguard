@@ -75,4 +75,35 @@ class PhoneNumberMatcherTest {
         // Allows unrelated number
         assertNull(PhoneNumberMatcher.findMatchingPrefix("+1-415-555-0199", rules))
     }
+
+    @Test
+    fun `exact phone number rules match exact or local 10-digit subscriber without false prefix hits`() {
+        assertTrue(PhoneNumberMatcher.isValidExactNumber("+1 (415) 555-0192"))
+        assertTrue(PhoneNumberMatcher.isValidExactNumber("5550192"))
+        assertFalse(PhoneNumberMatcher.isValidExactNumber("+1800"))
+
+        val rules = listOf(
+            BlockedPrefixEntity(
+                id = 10L,
+                prefixString = "+14155550192",
+                normalizedPrefix = "+14155550192",
+                label = "Harassing Caller",
+                isActive = true,
+                matchType = com.example.data.local.BlockedMatchType.EXACT_NUMBER
+            )
+        )
+
+        // Exact formatted E.164 match
+        val exact = PhoneNumberMatcher.findMatchingPrefix("+1 (415) 555-0192", rules)
+        assertNotNull(exact)
+        assertEquals("Harassing Caller", exact?.label)
+
+        // Carrier-delivered 10-digit local format matches the E.164 exact entry
+        val localMatch = PhoneNumberMatcher.findMatchingPrefix("415-555-0192", rules)
+        assertNotNull(localMatch)
+
+        // Different number sharing prefix must NOT be blocked by an EXACT_NUMBER rule
+        assertNull(PhoneNumberMatcher.findMatchingPrefix("+14155550193", rules))
+        assertNull(PhoneNumberMatcher.findMatchingPrefix("+141555501929", rules))
+    }
 }

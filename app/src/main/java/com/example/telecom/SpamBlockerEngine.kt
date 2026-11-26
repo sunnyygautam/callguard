@@ -133,15 +133,20 @@ object SpamBlockerEngine {
             )
         }
 
-        // 4. User's active manual series/prefix rules (highest prefix priority)
+        // 4. User's active Blocked List (specific phone numbers & series/prefix rules)
         val matchedManualRule = PhoneNumberMatcher.findMatchingPrefix(
             incomingRawNumber = rawIncomingNumber,
             activePrefixes = activeManualPrefixes
         )
         if (matchedManualRule != null) {
+            val defaultReason = if (matchedManualRule.isExactNumber) {
+                "Blocked Number"
+            } else {
+                "Blocked Prefix"
+            }
             return SpamScreeningDecision.Block(
                 matchedPrefix = matchedManualRule.prefixString,
-                reasonLabel = matchedManualRule.label.ifBlank { "Blocked Prefix" },
+                reasonLabel = matchedManualRule.label.ifBlank { defaultReason },
                 silenceOnly = settings.silenceOnlyMode
             )
         }

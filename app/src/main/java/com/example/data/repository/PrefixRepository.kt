@@ -1,12 +1,13 @@
 package com.example.data.repository
 
+import com.example.data.local.BlockedMatchType
 import com.example.data.local.BlockedPrefixDao
 import com.example.data.local.BlockedPrefixEntity
 import com.example.telecom.PhoneNumberMatcher
 import kotlinx.coroutines.flow.Flow
 
 /**
- * Result sealed interface for adding a new manual prefix rule.
+ * Result sealed interface for adding a new manual phone number or prefix rule.
  */
 sealed interface AddPrefixResult {
     data class Success(val entity: BlockedPrefixEntity) : AddPrefixResult
@@ -21,18 +22,27 @@ sealed interface AddPrefixResult {
 class PrefixRepository(
     private val blockedPrefixDao: BlockedPrefixDao
 ) {
-    /** Reactive list of all stored prefixes for UI observation. */
+    /** Reactive list of all stored blocked numbers and prefixes for UI observation. */
     val allPrefixes: Flow<List<BlockedPrefixEntity>> = blockedPrefixDao.observeAllPrefixes()
 
     /**
-     * Validates, normalizes, and inserts a new manual prefix rule.
+     * Validates, normalizes, and inserts a new blocked phone number or prefix rule into Room.
      */
-    suspend fun addPrefix(rawPrefix: String, rawLabel: String): AddPrefixResult {
+    suspend fun addPrefix(
+        rawPrefix: String,
+        rawLabel: String,
+        matchType: String = BlockedMatchType.PREFIX
+    ): AddPrefixResult {
         val trimmedInput = rawPrefix.trim()
         if (trimmedInput.isEmpty()) return AddPrefixResult.EmptyInput
 
         val normalized = PhoneNumberMatcher.normalize(trimmedInput)
-        if (!PhoneNumberMatcher.isValidPrefix(normalized)) {
+        val isValid = if (matchType == BlockedMatchType.EXACT_NUMBER) {
+            PhoneNumberMatcher.isValidExactNumber(normalized)
+        } else {
+            PhoneNumberMatcher.isValidPrefix(normalized)
+        }
+        if (!isValid) {
             return AddPrefixResult.InvalidFormat
         }
 
@@ -44,7 +54,8 @@ class PrefixRepository(
             prefixString = normalized,
             normalizedPrefix = normalized,
             label = rawLabel.trim(),
-            isActive = true
+            isActive = true,
+            matchType = matchType
         )
 
         val insertedId = blockedPrefixDao.insertPrefix(entity)

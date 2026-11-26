@@ -19,7 +19,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         BlockedPrefixEntity::class,
         BlockedCallLogEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class CallGuardDatabase : RoomDatabase() {
@@ -70,6 +70,18 @@ abstract class CallGuardDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Preserves existing blocked prefix rules when upgrading from v3 to v4 by adding the
+         * `match_type` column ('PREFIX' or 'EXACT_NUMBER') to `blocked_prefixes`.
+         */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE `blocked_prefixes` ADD COLUMN `match_type` TEXT NOT NULL DEFAULT 'PREFIX'"
+                )
+            }
+        }
+
         @Volatile
         private var instance: CallGuardDatabase? = null
 
@@ -80,7 +92,7 @@ abstract class CallGuardDatabase : RoomDatabase() {
                     CallGuardDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                     .also { db ->
                         instance = db

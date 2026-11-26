@@ -9,6 +9,7 @@ import com.example.R
 import com.example.data.backup.BackupExportResult
 import com.example.data.backup.LocalBackupExporter
 import com.example.data.local.BlockedCallLogEntity
+import com.example.data.local.BlockedMatchType
 import com.example.data.local.BlockedPrefixEntity
 import com.example.data.model.BlockedCallsSummary
 import com.example.data.model.DailyBlockedCallsAggregator
@@ -61,6 +62,8 @@ enum class CallHistoryFilter {
  */
 data class CallGuardUiState(
     val selectedTab: CallGuardTab = CallGuardTab.HOME,
+    val isBlockedListScreenOpen: Boolean = false,
+    val selectedBlockedMatchType: String = BlockedMatchType.EXACT_NUMBER,
     val prefixInput: String = "",
     val labelInput: String = "",
     @StringRes val prefixErrorRes: Int? = null,
@@ -91,6 +94,12 @@ data class CallGuardUiState(
 ) {
     val activePrefixCount: Int
         get() = prefixes.count { it.isActive }
+
+    val exactBlockedNumberCount: Int
+        get() = prefixes.count { it.isExactNumber }
+
+    val blockedPrefixSeriesCount: Int
+        get() = prefixes.count { !it.isExactNumber }
 
     val blockedCallCount: Int
         get() = blockedCallLogs.size
@@ -126,6 +135,7 @@ class CallGuardViewModel(
 ) : ViewModel() {
 
     private data class FormState(
+        val selectedMatchType: String = BlockedMatchType.EXACT_NUMBER,
         val prefixInput: String = "",
         val labelInput: String = "",
         @StringRes val prefixErrorRes: Int? = null
@@ -133,6 +143,7 @@ class CallGuardViewModel(
 
     private data class PhoneUiState(
         val selectedTab: CallGuardTab = CallGuardTab.HOME,
+        val isBlockedListScreenOpen: Boolean = false,
         val dialerInput: String = "",
         val deviceContacts: List<DeviceContactEntry> = emptyList(),
         val contactsSearchQuery: String = "",
@@ -189,6 +200,8 @@ class CallGuardViewModel(
         )
         CallGuardUiState(
             selectedTab = phone.selectedTab,
+            isBlockedListScreenOpen = phone.isBlockedListScreenOpen,
+            selectedBlockedMatchType = core.form.selectedMatchType,
             prefixInput = core.form.prefixInput,
             labelInput = core.form.labelInput,
             prefixErrorRes = core.form.prefixErrorRes,
@@ -228,11 +241,33 @@ class CallGuardViewModel(
     }
 
     fun selectTab(tab: CallGuardTab) {
-        phoneUiState.update { it.copy(selectedTab = tab) }
+        phoneUiState.update {
+            it.copy(
+                selectedTab = tab,
+                isBlockedListScreenOpen = if (tab != CallGuardTab.SHIELD) false else it.isBlockedListScreenOpen
+            )
+        }
         if (tab == CallGuardTab.HOME || tab == CallGuardTab.KEYPAD) {
             refreshDeviceContacts()
             refreshDeviceCallHistory()
         }
+    }
+
+    fun openBlockedListScreen() {
+        phoneUiState.update {
+            it.copy(
+                selectedTab = CallGuardTab.SHIELD,
+                isBlockedListScreenOpen = true
+            )
+        }
+    }
+
+    fun closeBlockedListScreen() {
+        phoneUiState.update { it.copy(isBlockedListScreenOpen = false) }
+    }
+
+    fun onBlockedMatchTypeSelected(matchType: String) {
+        formState.update { it.copy(selectedMatchType = matchType, prefixErrorRes = null) }
     }
 
     fun onPrefixInputChanged(value: String) {
@@ -249,6 +284,7 @@ class CallGuardViewModel(
     fun applyQuickPrefix(prefix: String, suggestedLabel: String) {
         formState.update { current ->
             current.copy(
+                selectedMatchType = BlockedMatchType.PREFIX,
                 prefixInput = prefix,
                 labelInput = current.labelInput.ifBlank { suggestedLabel },
                 prefixErrorRes = null
@@ -258,37 +294,59 @@ class CallGuardViewModel(
 
     /**
      * Prefills a caller number from Home Contacts, Recent Calls, or Keypad into the Shield
-     * Add Prefix input and switches to the Shield tab for quick one-tap blocking.
+     * Blocked List screen (defaulting to Exact Phone Number when >= 7 digits) for quick blocking.
      */
     fun prefillBlockPrefixFromCall(rawNumber: String, callerName: String?) {
         val normalized = PhoneNumberMatcher.normalize(rawNumber)
-        val suggestedPrefix = normalized.ifEmpty { rawNumber.trim() }
+        val suggestedValue = normalized.ifEmpty { rawNumber.trim() }
+        val inferredType = if (PhoneNumberMatcher.isValidExactNumber(suggestedValue)) {
+            BlockedMatchType.EXACT_NUMBER
+        } else {
+            BlockedMatchType.PREFIX
+        }
         formState.update {
             it.copy(
-                prefixInput = suggestedPrefix,
+                selectedMatchType = inferredType,
+                prefixInput = suggestedValue,
                 labelInput = callerName?.take(40) ?: it.labelInput,
                 prefixErrorRes = null
             )
         }
-        phoneUiState.update { it.copy(selectedTab = CallGuardTab.SHIELD) }
+        phoneUiState.update {
+            it.copy(
+                selectedTab = CallGuardTab.SHIELD,
+                isBlockedListScreenOpen = true
+            )
+        }
         viewModelScope.launch {
-            _events.emit(CallGuardEvent.PrefilledBlockPrefix(suggestedPrefix))
+            _events.emit(CallGuardEvent.PrefilledBlockPrefix(suggestedValue))
         }
     }
 
     fun addPrefix() {
         val snapshot = formState.value
         viewModelScope.launch {
-            when (val result = prefixRepository.addPrefix(snapshot.prefixInput, snapshot.labelInput)) {
+            when (
+                val result = prefixRepository.addPrefix(
+                    rawPrefix = snapshot.prefixInput,
+                    rawLabel = snapshot.labelInput,
+                    matchType = snapshot.selectedMatchType
+                )
+            ) {
                 is AddPrefixResult.Success -> {
-                    formState.value = FormState()
+                    formState.value = FormState(selectedMatchType = snapshot.selectedMatchType)
                     _events.emit(CallGuardEvent.PrefixAdded(result.entity.prefixString))
                 }
                 AddPrefixResult.EmptyInput -> {
                     formState.update { it.copy(prefixErrorRes = R.string.error_prefix_empty) }
                 }
                 AddPrefixResult.InvalidFormat -> {
-                    formState.update { it.copy(prefixErrorRes = R.string.error_prefix_invalid) }
+                    val errorRes = if (snapshot.selectedMatchType == BlockedMatchType.EXACT_NUMBER) {
+                        R.string.error_exact_number_invalid
+                    } else {
+                        R.string.error_prefix_invalid
+                    }
+                    formState.update { it.copy(prefixErrorRes = errorRes) }
                 }
                 AddPrefixResult.DuplicatePrefix -> {
                     formState.update { it.copy(prefixErrorRes = R.string.error_prefix_duplicate) }

@@ -173,4 +173,42 @@ class SpamBlockerEngineTest {
         assertTrue(decision is SpamScreeningDecision.Block)
         assertEquals("DND", (decision as SpamScreeningDecision.Block).matchedPrefix)
     }
+
+    @Test
+    fun `exact phone number in blocked list rejects matching incoming call`() {
+        val exactRule = BlockedPrefixEntity(
+            id = 12L,
+            prefixString = "+1 (415) 555-0199",
+            normalizedPrefix = "+14155550199",
+            label = "",
+            isActive = true,
+            matchType = com.example.data.local.BlockedMatchType.EXACT_NUMBER
+        )
+        val blocked = SpamBlockerEngine.evaluateIncomingCall(
+            rawIncomingNumber = "415-555-0199",
+            isHiddenOrPrivateCaller = false,
+            isStirShakenVerificationFailed = false,
+            activeManualPrefixes = listOf(exactRule),
+            settings = SpamBlockerSettings(
+                isSpamBlockerEnabled = true,
+                blockBuiltInSpamSeries = false
+            )
+        )
+        assertTrue(blocked is SpamScreeningDecision.Block)
+        val block = blocked as SpamScreeningDecision.Block
+        assertEquals("+1 (415) 555-0199", block.matchedPrefix)
+        assertEquals("Blocked Number", block.reasonLabel)
+
+        val otherCaller = SpamBlockerEngine.evaluateIncomingCall(
+            rawIncomingNumber = "+14155550198",
+            isHiddenOrPrivateCaller = false,
+            isStirShakenVerificationFailed = false,
+            activeManualPrefixes = listOf(exactRule),
+            settings = SpamBlockerSettings(
+                isSpamBlockerEnabled = true,
+                blockBuiltInSpamSeries = false
+            )
+        )
+        assertEquals(SpamScreeningDecision.Allow, otherCaller)
+    }
 }

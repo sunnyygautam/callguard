@@ -6,9 +6,17 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
- * Room entity representing a single user-defined number series/prefix blocking rule.
+ * Matching strategy for entries in the Room Blocked List table.
+ */
+object BlockedMatchType {
+    const val PREFIX = "PREFIX"
+    const val EXACT_NUMBER = "EXACT_NUMBER"
+}
+
+/**
+ * Room entity representing a single user-defined blocked phone number or number series/prefix rule.
  *
- * A unique index on [normalizedPrefix] prevents duplicate blocking rules such as
+ * A unique index on [normalizedPrefix] prevents duplicate entries such as
  * "+91 140" and "+91140" from being inserted twice.
  */
 @Entity(
@@ -19,7 +27,7 @@ data class BlockedPrefixEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0L,
 
-    /** Display-friendly prefix string entered by the user (e.g., "+91140", "+1800", "0114"). */
+    /** Display-friendly phone number or prefix entered by the user (e.g., "+14155550192" or "+91140"). */
     @ColumnInfo(name = "prefix_string")
     val prefixString: String,
 
@@ -27,15 +35,22 @@ data class BlockedPrefixEntity(
     @ColumnInfo(name = "normalized_prefix")
     val normalizedPrefix: String,
 
-    /** Optional label or reason for blocking this series (e.g., "Telemarketer", "Spam"). */
+    /** Optional label or reason for blocking (e.g., "Telemarketer", "Spam Caller"). */
     @ColumnInfo(name = "label")
     val label: String = "",
 
-    /** Whether this prefix rule is currently enabled for incoming call screening. */
+    /** Whether this rule is currently enabled for incoming call screening. */
     @ColumnInfo(name = "is_active")
     val isActive: Boolean = true,
 
     /** Epoch timestamp (ms) when this rule was created. */
     @ColumnInfo(name = "created_at")
-    val createdAt: Long = System.currentTimeMillis()
-)
+    val createdAt: Long = System.currentTimeMillis(),
+
+    /** Whether this entry matches an exact phone number ([BlockedMatchType.EXACT_NUMBER]) or prefix ([BlockedMatchType.PREFIX]). */
+    @ColumnInfo(name = "match_type", defaultValue = "'PREFIX'")
+    val matchType: String = BlockedMatchType.PREFIX
+) {
+    val isExactNumber: Boolean
+        get() = matchType == BlockedMatchType.EXACT_NUMBER
+}
