@@ -19,7 +19,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         BlockedPrefixEntity::class,
         BlockedCallLogEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class CallGuardDatabase : RoomDatabase() {
@@ -55,6 +55,21 @@ abstract class CallGuardDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Preserves existing prefix rules and blocked call history when upgrading from v2 to v3
+         * by adding on-device ML spam probability columns to `blocked_call_logs`.
+         */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE `blocked_call_logs` ADD COLUMN `spam_probability` INTEGER NOT NULL DEFAULT -1"
+                )
+                db.execSQL(
+                    "ALTER TABLE `blocked_call_logs` ADD COLUMN `ml_reason` TEXT NOT NULL DEFAULT ''"
+                )
+            }
+        }
+
         @Volatile
         private var instance: CallGuardDatabase? = null
 
@@ -65,7 +80,7 @@ abstract class CallGuardDatabase : RoomDatabase() {
                     CallGuardDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                     .also { db ->
                         instance = db

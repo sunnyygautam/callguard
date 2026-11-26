@@ -119,4 +119,58 @@ class SpamBlockerEngineTest {
         assertTrue(decision is SpamScreeningDecision.Block)
         assertEquals("My Custom Label", (decision as SpamScreeningDecision.Block).reasonLabel)
     }
+
+    @Test
+    fun `do not disturb rejects non-contact callers even when regular spam blocker is disabled`() {
+        val decision = SpamBlockerEngine.evaluateIncomingCall(
+            rawIncomingNumber = "+14155550192",
+            isHiddenOrPrivateCaller = false,
+            isStirShakenVerificationFailed = false,
+            activeManualPrefixes = emptyList(),
+            settings = SpamBlockerSettings(
+                isSpamBlockerEnabled = false,
+                doNotDisturbEnabled = true,
+                silenceOnlyMode = true
+            ),
+            isCallerInContacts = false
+        )
+        assertTrue(decision is SpamScreeningDecision.Block)
+        val block = decision as SpamScreeningDecision.Block
+        assertEquals("DND", block.matchedPrefix)
+        assertFalse(block.silenceOnly)
+    }
+
+    @Test
+    fun `do not disturb allows callers found in contacts`() {
+        val decision = SpamBlockerEngine.evaluateIncomingCall(
+            rawIncomingNumber = "+14155550192",
+            isHiddenOrPrivateCaller = false,
+            isStirShakenVerificationFailed = false,
+            activeManualPrefixes = emptyList(),
+            settings = SpamBlockerSettings(
+                isSpamBlockerEnabled = true,
+                doNotDisturbEnabled = true,
+                blockBuiltInSpamSeries = true
+            ),
+            isCallerInContacts = true
+        )
+        assertEquals(SpamScreeningDecision.Allow, decision)
+    }
+
+    @Test
+    fun `do not disturb rejects hidden private callers`() {
+        val decision = SpamBlockerEngine.evaluateIncomingCall(
+            rawIncomingNumber = null,
+            isHiddenOrPrivateCaller = true,
+            isStirShakenVerificationFailed = false,
+            activeManualPrefixes = emptyList(),
+            settings = SpamBlockerSettings(
+                isSpamBlockerEnabled = false,
+                doNotDisturbEnabled = true
+            ),
+            isCallerInContacts = false
+        )
+        assertTrue(decision is SpamScreeningDecision.Block)
+        assertEquals("DND", (decision as SpamScreeningDecision.Block).matchedPrefix)
+    }
 }

@@ -20,6 +20,7 @@ private val Context.spamBlockerDataStore: DataStore<Preferences> by preferencesD
  */
 data class SpamBlockerSettings(
     val isSpamBlockerEnabled: Boolean = true,
+    val doNotDisturbEnabled: Boolean = false,
     val blockBuiltInSpamSeries: Boolean = true,
     val blockHiddenPrivateCalls: Boolean = false,
     val blockSpoofedStirShakenCalls: Boolean = true,
@@ -38,6 +39,7 @@ class SpamBlockerPreferencesRepository(
 ) {
     private object Keys {
         val SPAM_BLOCKER_ENABLED = booleanPreferencesKey("spam_blocker_enabled")
+        val DO_NOT_DISTURB_ENABLED = booleanPreferencesKey("do_not_disturb_enabled")
         val BLOCK_BUILTIN_SPAM_SERIES = booleanPreferencesKey("block_builtin_spam_series")
         val BLOCK_HIDDEN_PRIVATE_CALLS = booleanPreferencesKey("block_hidden_private_calls")
         val BLOCK_SPOOFED_STIR_SHAKEN = booleanPreferencesKey("block_spoofed_stir_shaken")
@@ -50,6 +52,7 @@ class SpamBlockerPreferencesRepository(
     val settings: Flow<SpamBlockerSettings> = context.spamBlockerDataStore.data.map { prefs ->
         SpamBlockerSettings(
             isSpamBlockerEnabled = prefs[Keys.SPAM_BLOCKER_ENABLED] ?: true,
+            doNotDisturbEnabled = prefs[Keys.DO_NOT_DISTURB_ENABLED] ?: false,
             blockBuiltInSpamSeries = prefs[Keys.BLOCK_BUILTIN_SPAM_SERIES] ?: true,
             blockHiddenPrivateCalls = prefs[Keys.BLOCK_HIDDEN_PRIVATE_CALLS] ?: false,
             blockSpoofedStirShakenCalls = prefs[Keys.BLOCK_SPOOFED_STIR_SHAKEN] ?: true,
@@ -64,6 +67,10 @@ class SpamBlockerPreferencesRepository(
 
     suspend fun setSpamBlockerEnabled(enabled: Boolean) {
         context.spamBlockerDataStore.edit { it[Keys.SPAM_BLOCKER_ENABLED] = enabled }
+    }
+
+    suspend fun setDoNotDisturbEnabled(enabled: Boolean) {
+        context.spamBlockerDataStore.edit { it[Keys.DO_NOT_DISTURB_ENABLED] = enabled }
     }
 
     suspend fun setBlockBuiltInSpamSeries(enabled: Boolean) {

@@ -38,5 +38,13 @@ data class BlockedCallLogEntity(
 
     /** Epoch timestamp (ms) when the call was rejected. */
     @ColumnInfo(name = "blocked_at")
-    val blockedAt: Long = System.currentTimeMillis()
+    val blockedAt: Long = System.currentTimeMillis(),
+
+    /** On-device ML spam probability score (0..100), or -1 for legacy records prior to v3. */
+    @ColumnInfo(name = "spam_probability", defaultValue = "-1")
+    val spamProbability: Int = -1,
+
+    /** Concise primary ML analysis factor explaining the spam probability score. */
+    @ColumnInfo(name = "ml_reason", defaultValue = "''")
+    val mlReason: String = ""
 )

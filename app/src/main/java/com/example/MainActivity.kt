@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import com.example.data.backup.LocalBackupExporter
 import com.example.data.local.CallGuardDatabase
 import com.example.data.repository.BlockedCallLogRepository
 import com.example.data.repository.DeviceCallLogRepository
@@ -22,12 +23,19 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: CallGuardViewModel by viewModels {
         val database = CallGuardDatabase.getInstance(applicationContext)
+        val blockedCallLogRepository = BlockedCallLogRepository(database.blockedCallLogDao())
+        val deviceContactsRepository = DeviceContactsRepository(applicationContext)
         CallGuardViewModel.Factory(
             prefixRepository = PrefixRepository(database.blockedPrefixDao()),
-            callLogRepository = BlockedCallLogRepository(database.blockedCallLogDao()),
+            callLogRepository = blockedCallLogRepository,
             deviceCallLogRepository = DeviceCallLogRepository(applicationContext),
-            deviceContactsRepository = DeviceContactsRepository(applicationContext),
+            deviceContactsRepository = deviceContactsRepository,
             spamPrefsRepository = SpamBlockerPreferencesRepository(applicationContext),
+            localBackupExporter = LocalBackupExporter(
+                context = applicationContext,
+                blockedCallLogRepository = blockedCallLogRepository,
+                deviceContactsRepository = deviceContactsRepository
+            ),
             initialStatus = CallScreeningRoleHelper.getStatus(applicationContext)
         )
     }

@@ -21,11 +21,13 @@ import androidx.compose.material.icons.outlined.PersonOff
 import androidx.compose.material.icons.outlined.Report
 import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material.icons.outlined.Vibration
+import androidx.compose.material.icons.rounded.DoNotDisturbOn
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -45,6 +47,176 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.data.repository.SpamBlockerSettings
+import com.example.ui.theme.ShieldWarningAmber
+
+/**
+ * Dedicated Do Not Disturb (Contacts Only) mode toggle card.
+ * When enabled, [com.example.telecom.PrefixCallScreeningService] automatically rejects every
+ * incoming call whose number is not found in the user's Contacts.
+ */
+@Composable
+internal fun DoNotDisturbCard(
+    enabled: Boolean,
+    hasContactsPermission: Boolean,
+    onToggle: (Boolean) -> Unit,
+    onRequestContactsPermission: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val iconContainerColor by animateColorAsState(
+        targetValue = if (enabled) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant
+        },
+        label = "dnd_icon_bg"
+    )
+    val iconTint by animateColorAsState(
+        targetValue = if (enabled) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        label = "dnd_icon_tint"
+    )
+    val dndSwitchCd = stringResource(R.string.dnd_cd_switch)
+
+    OutlinedCard(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("do_not_disturb_card"),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (enabled) {
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.50f)
+            } else {
+                MaterialTheme.colorScheme.outlineVariant
+            }
+        ),
+        elevation = CardDefaults.outlinedCardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(iconContainerColor),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.DoNotDisturbOn,
+                        contentDescription = null,
+                        tint = iconTint,
+                        modifier = Modifier.size(23.dp)
+                    )
+                }
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.dnd_title),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (enabled) {
+                                MaterialTheme.colorScheme.primaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant
+                            }
+                        ) {
+                            Text(
+                                text = stringResource(
+                                    if (enabled) R.string.dnd_status_on else R.string.dnd_status_off
+                                ),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (enabled) {
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = stringResource(
+                            if (enabled) R.string.dnd_subtitle_on else R.string.dnd_subtitle_off
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = onToggle,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                        checkedTrackColor = MaterialTheme.colorScheme.primary
+                    ),
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .semantics { contentDescription = dndSwitchCd }
+                        .testTag("do_not_disturb_switch")
+                )
+            }
+
+            if (enabled && !hasContactsPermission) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    color = ShieldWarningAmber.copy(alpha = 0.12f),
+                    border = BorderStroke(1.dp, ShieldWarningAmber.copy(alpha = 0.35f))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.dnd_contacts_permission_warning),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        OutlinedButton(
+                            onClick = onRequestContactsPermission,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("dnd_grant_contacts_button")
+                        ) {
+                            Text(
+                                text = stringResource(R.string.backup_btn_allow_contacts),
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 /**
  * Interactive Spam Call Blocker control panel allowing users to enable/disable the master

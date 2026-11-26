@@ -35,10 +35,8 @@ import androidx.compose.material.icons.automirrored.rounded.CallMissed
 import androidx.compose.material.icons.automirrored.rounded.CallReceived
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Contacts
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.rounded.Call
-import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.PhoneDisabled
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
@@ -77,15 +75,15 @@ import com.example.R
 import com.example.data.repository.DeviceCallLogEntry
 import com.example.data.repository.DeviceCallType
 import com.example.data.repository.DeviceContactEntry
+import com.example.ml.SpamMlAnalysisResult
 import com.example.telecom.PhoneNumberMatcher
 import com.example.ui.theme.PrefixMonoStyle
 import com.example.ui.theme.ShieldActiveEmerald
 
-private const val INITIAL_CONTACTS_PREVIEW_LIMIT = 8
-
 /**
- * Home tab featuring the Search Contacts section at the top, followed by Recent Call History
- * with real-time search, type filters, one-tap calling, and quick-block prefix actions.
+ * Google Phone–inspired Home tab featuring a single top "Search contacts by name or number"
+ * pill bar, followed directly by All / Incoming / Outgoing / Missed tabs and Recent Call History.
+ * Matching contacts appear only while actively searching—never cluttering the idle home view.
  */
 @Composable
 internal fun HomeContactsScreen(
@@ -100,8 +98,10 @@ internal fun HomeContactsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    var showAllContacts by remember { mutableStateOf(false) }
     var pendingCallNumber by remember { mutableStateOf<String?>(null) }
+    var inspectedCallEntry by remember {
+        mutableStateOf<Pair<DeviceCallLogEntry, SpamMlAnalysisResult>?>(null)
+    }
 
     val callPhonePermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -157,30 +157,51 @@ internal fun HomeContactsScreen(
         }
     }
 
-    val filteredContacts = remember(uiState.deviceContacts, uiState.contactsSearchQuery) {
-        SuggestedContactsMatcher.filterContacts(
-            contacts = uiState.deviceContacts,
-            query = uiState.contactsSearchQuery
-        )
+    val unifiedSearchQuery = uiState.contactsSearchQuery
+    val isSearching = unifiedSearchQuery.isNotBlank()
+
+    val onUnifiedSearchChanged: (String) -> Unit = { query ->
+        onContactsSearchChanged(query)
+        onCallHistorySearchChanged(query)
     }
 
-    val displayedContacts = remember(filteredContacts, showAllContacts, uiState.contactsSearchQuery) {
-        if (uiState.contactsSearchQuery.isNotBlank() || showAllContacts) {
-            filteredContacts
+    val filteredContacts = remember(uiState.deviceContacts, unifiedSearchQuery) {
+        if (unifiedSearchQuery.isBlank()) {
+            emptyList()
         } else {
-            filteredContacts.take(INITIAL_CONTACTS_PREVIEW_LIMIT)
+            SuggestedContactsMatcher.filterContacts(
+                contacts = uiState.deviceContacts,
+                query = unifiedSearchQuery
+            )
         }
     }
 
     val filteredCalls = remember(
         uiState.deviceCallLogs,
         uiState.callHistoryFilter,
-        uiState.callHistorySearchQuery
+        unifiedSearchQuery
     ) {
         filterDeviceCallLogs(
             logs = uiState.deviceCallLogs,
             filter = uiState.callHistoryFilter,
-            searchQuery = uiState.callHistorySearchQuery
+            searchQuery = unifiedSearchQuery
+        )
+    }
+
+    inspectedCallEntry?.let { (entry, analysis) ->
+        val title = entry.cachedName ?: entry.number.ifBlank {
+            stringResource(R.string.call_unknown_number)
+        }
+        SpamAnalysisDetailDialog(
+            displayTitle = title,
+            phoneNumber = entry.number,
+            analysis = analysis,
+            onDismiss = { inspectedCallEntry = null },
+            onBlockPrefix = if (entry.number.isNotBlank()) {
+                { onQuickBlockNumber(entry.number, entry.cachedName) }
+            } else {
+                null
+            }
         )
     }
 
@@ -193,313 +214,180 @@ internal fun HomeContactsScreen(
                 .widthIn(max = 600.dp)
                 .fillMaxSize()
                 .testTag("home_lazy_column"),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Home Brand Header
-            item(key = "home_header") {
+            // Google Phone–style Top Pill Search Bar ("Search contacts by name or number…")
+            item(key = "home_search_bar") {
+                OutlinedTextField(
+                    value = unifiedSearchQuery,
+                    onValueChange = onUnifiedSearchChanged,
+                    placeholder = {
+                        Text(
+                            text = stringResource(R.string.contacts_search_placeholder),
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Rounded.Search,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    },
+                    trailingIcon = {
+                        if (isSearching) {
+                            IconButton(
+                                onClick = { onUnifiedSearchChanged("") },
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("contacts_search_clear")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Close,
+                                    contentDescription = stringResource(R.string.cd_clear_input)
+                                )
+                            }
+                        } else {
+                            IconButton(
+                                onClick = {
+                                    onRefreshContacts()
+                                    onRefreshCallHistory()
+                                },
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("refresh_call_history_button")
+                            ) {
+                                if (uiState.isLoadingCallHistory || uiState.isLoadingContacts) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Refresh,
+                                        contentDescription = stringResource(R.string.call_history_refresh_cd),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(999.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.50f),
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("contacts_search_input")
+                )
+            }
+
+            // All / Incoming / Outgoing / Missed Filter Tabs directly under Search
+            item(key = "home_filter_tabs") {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 4.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(42.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(MaterialTheme.colorScheme.primaryContainer),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Home,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(23.dp)
-                        )
-                    }
-                    Column {
-                        Text(
-                            text = stringResource(R.string.home_header_title),
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                        Text(
-                            text = stringResource(R.string.home_header_subtitle),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                    CallHistoryFilter.entries.forEach { filter ->
+                        val labelRes = when (filter) {
+                            CallHistoryFilter.ALL -> R.string.call_history_filter_all
+                            CallHistoryFilter.INCOMING -> R.string.call_history_filter_incoming
+                            CallHistoryFilter.OUTGOING -> R.string.call_history_filter_outgoing
+                            CallHistoryFilter.MISSED -> R.string.call_history_filter_missed
+                        }
+                        FilterChip(
+                            selected = uiState.callHistoryFilter == filter,
+                            onClick = { onCallHistoryFilterSelected(filter) },
+                            label = { Text(stringResource(labelRes)) },
+                            shape = RoundedCornerShape(999.dp),
+                            modifier = Modifier.testTag("call_filter_${filter.name.lowercase()}")
                         )
                     }
                 }
             }
 
-            // Search Contacts Section Header & Search Field
-            item(key = "contacts_search_section") {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            // Show matching contacts ONLY while the user is actively searching
+            if (isSearching) {
+                if (!uiState.hasContactsPermission) {
+                    item(key = "search_contacts_permission_banner") {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                         ) {
-                            Text(
-                                text = stringResource(R.string.contacts_section_header),
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onBackground
-                            )
-                            if (uiState.hasContactsPermission && uiState.deviceContacts.isNotEmpty()) {
-                                Surface(
-                                    shape = RoundedCornerShape(999.dp),
-                                    color = MaterialTheme.colorScheme.surfaceVariant
-                                ) {
-                                    Text(
-                                        text = stringResource(
-                                            R.string.contacts_count_badge,
-                                            filteredContacts.size
-                                        ),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(
-                                            horizontal = 8.dp,
-                                            vertical = 3.dp
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.contacts_permission_title),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                TextButton(
+                                    onClick = {
+                                        contactsPermissionLauncher.launch(
+                                            Manifest.permission.READ_CONTACTS
                                         )
-                                    )
-                                }
-                            }
-                        }
-
-                        IconButton(
-                            onClick = onRefreshContacts,
-                            modifier = Modifier
-                                .minimumInteractiveComponentSize()
-                                .testTag("refresh_contacts_button")
-                        ) {
-                            if (uiState.isLoadingContacts) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    strokeWidth = 2.dp
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Rounded.Refresh,
-                                    contentDescription = stringResource(R.string.contacts_refresh_cd),
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        }
-                    }
-
-                    OutlinedTextField(
-                        value = uiState.contactsSearchQuery,
-                        onValueChange = onContactsSearchChanged,
-                        placeholder = {
-                            Text(
-                                text = stringResource(R.string.contacts_search_placeholder),
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Rounded.Search,
-                                contentDescription = null
-                            )
-                        },
-                        trailingIcon = {
-                            if (uiState.contactsSearchQuery.isNotEmpty()) {
-                                IconButton(
-                                    onClick = { onContactsSearchChanged("") },
-                                    modifier = Modifier.testTag("contacts_search_clear")
+                                    },
+                                    modifier = Modifier
+                                        .minimumInteractiveComponentSize()
+                                        .testTag("grant_contacts_button")
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.Close,
-                                        contentDescription = stringResource(R.string.cd_clear_input)
-                                    )
+                                    Text(text = stringResource(R.string.backup_btn_allow_contacts))
                                 }
                             }
-                        },
-                        singleLine = true,
-                        shape = RoundedCornerShape(16.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = MaterialTheme.colorScheme.surface,
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("contacts_search_input")
-                    )
-                }
-            }
-
-            // Contacts Permission Gate / Empty / Contact List
-            if (!uiState.hasContactsPermission) {
-                item(key = "contacts_permission_card") {
-                    ContactsPermissionCard(
-                        onGrantPermission = {
-                            contactsPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
-                        }
-                    )
-                }
-            } else if (filteredContacts.isEmpty() && !uiState.isLoadingContacts) {
-                item(key = "contacts_empty_state") {
-                    if (uiState.contactsSearchQuery.isNotBlank()) {
-                        EmptySearchCard(
-                            title = stringResource(R.string.contacts_search_empty_title),
-                            body = stringResource(
-                                R.string.contacts_search_empty_body,
-                                uiState.contactsSearchQuery
-                            ),
-                            onClearSearch = { onContactsSearchChanged("") },
-                            testTag = "empty_search_contacts"
-                        )
-                    } else {
-                        EmptyContactsCard()
-                    }
-                }
-            } else {
-                items(
-                    items = displayedContacts,
-                    key = { "contact_${it.id}" }
-                ) { contact ->
-                    DeviceContactRow(
-                        contact = contact,
-                        onCall = { initiateCall(contact.phoneNumber) },
-                        onBlockPrefix = {
-                            onQuickBlockNumber(contact.phoneNumber, contact.displayName)
-                        },
-                        modifier = Modifier.animateItem()
-                    )
-                }
-
-                if (uiState.contactsSearchQuery.isBlank() &&
-                    filteredContacts.size > INITIAL_CONTACTS_PREVIEW_LIMIT
-                ) {
-                    item(key = "contacts_expand_toggle") {
-                        TextButton(
-                            onClick = { showAllContacts = !showAllContacts },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("contacts_expand_button")
-                        ) {
-                            Text(
-                                text = if (showAllContacts) {
-                                    stringResource(R.string.contacts_show_less)
-                                } else {
-                                    stringResource(R.string.contacts_show_all, filteredContacts.size)
-                                }
-                            )
                         }
                     }
-                }
-            }
-
-            // Recent Call History Header, Search & Filters
-            item(key = "call_history_header") {
-                Spacer(modifier = Modifier.height(6.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
+                } else if (filteredContacts.isNotEmpty()) {
+                    item(key = "search_contacts_matches_header") {
                         Text(
-                            text = stringResource(R.string.call_history_header),
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onBackground
+                            text = stringResource(R.string.contacts_section_header),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                         )
-
-                        IconButton(
-                            onClick = onRefreshCallHistory,
-                            modifier = Modifier
-                                .minimumInteractiveComponentSize()
-                                .testTag("refresh_call_history_button")
-                        ) {
-                            if (uiState.isLoadingCallHistory) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    strokeWidth = 2.dp
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Rounded.Refresh,
-                                    contentDescription = stringResource(R.string.call_history_refresh_cd),
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        }
                     }
 
-                    OutlinedTextField(
-                        value = uiState.callHistorySearchQuery,
-                        onValueChange = onCallHistorySearchChanged,
-                        placeholder = {
-                            Text(
-                                text = stringResource(R.string.call_history_search_placeholder),
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Rounded.Search,
-                                contentDescription = null
-                            )
-                        },
-                        trailingIcon = {
-                            if (uiState.callHistorySearchQuery.isNotEmpty()) {
-                                IconButton(
-                                    onClick = { onCallHistorySearchChanged("") },
-                                    modifier = Modifier.testTag("call_history_search_clear")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.Close,
-                                        contentDescription = stringResource(R.string.cd_clear_input)
-                                    )
-                                }
-                            }
-                        },
-                        singleLine = true,
-                        shape = RoundedCornerShape(14.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = MaterialTheme.colorScheme.surface,
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("call_history_search_input")
+                    items(
+                        items = filteredContacts,
+                        key = { "contact_${it.id}" }
+                    ) { contact ->
+                        DeviceContactRow(
+                            contact = contact,
+                            onCall = { initiateCall(contact.phoneNumber) },
+                            onBlockPrefix = {
+                                onQuickBlockNumber(contact.phoneNumber, contact.displayName)
+                            },
+                            modifier = Modifier.animateItem()
+                        )
+                    }
+                }
+            }
+
+            // Recent Call History Section Header
+            if (!isSearching || filteredCalls.isNotEmpty() || !uiState.hasCallLogPermission) {
+                item(key = "call_history_header") {
+                    Text(
+                        text = stringResource(R.string.call_history_header),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                     )
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        CallHistoryFilter.entries.forEach { filter ->
-                            val labelRes = when (filter) {
-                                CallHistoryFilter.ALL -> R.string.call_history_filter_all
-                                CallHistoryFilter.INCOMING -> R.string.call_history_filter_incoming
-                                CallHistoryFilter.OUTGOING -> R.string.call_history_filter_outgoing
-                                CallHistoryFilter.MISSED -> R.string.call_history_filter_missed
-                            }
-                            FilterChip(
-                                selected = uiState.callHistoryFilter == filter,
-                                onClick = { onCallHistoryFilterSelected(filter) },
-                                label = { Text(stringResource(labelRes)) },
-                                modifier = Modifier.testTag("call_filter_${filter.name.lowercase()}")
-                            )
-                        }
-                    }
                 }
             }
 
@@ -513,19 +401,21 @@ internal fun HomeContactsScreen(
                     )
                 }
             } else if (filteredCalls.isEmpty() && !uiState.isLoadingCallHistory) {
-                item(key = "empty_device_call_history") {
-                    if (uiState.callHistorySearchQuery.isNotBlank()) {
+                if (!isSearching) {
+                    item(key = "empty_device_call_history") {
+                        EmptyDeviceCallHistoryCard()
+                    }
+                } else if (filteredContacts.isEmpty()) {
+                    item(key = "empty_device_call_history") {
                         EmptySearchCard(
                             title = stringResource(R.string.call_history_search_empty_title),
                             body = stringResource(
                                 R.string.call_history_search_empty_body,
-                                uiState.callHistorySearchQuery
+                                unifiedSearchQuery
                             ),
-                            onClearSearch = { onCallHistorySearchChanged("") },
+                            onClearSearch = { onUnifiedSearchChanged("") },
                             testTag = "empty_search_call_history"
                         )
-                    } else {
-                        EmptyDeviceCallHistoryCard()
                     }
                 }
             } else {
@@ -533,8 +423,15 @@ internal fun HomeContactsScreen(
                     items = filteredCalls,
                     key = { "device_call_${it.id}" }
                 ) { entry ->
+                    val mlScore = uiState.callHistoryMlScores[entry.id]
                     DeviceCallLogRow(
                         entry = entry,
+                        mlAnalysis = mlScore,
+                        onInspectMlScore = {
+                            if (mlScore != null) {
+                                inspectedCallEntry = entry to mlScore
+                            }
+                        },
                         onCallBack = { initiateCall(entry.number) },
                         onBlockPrefix = { onQuickBlockNumber(entry.number, entry.cachedName) },
                         modifier = Modifier.animateItem()
@@ -645,6 +542,8 @@ private fun DeviceContactRow(
 @Composable
 private fun DeviceCallLogRow(
     entry: DeviceCallLogEntry,
+    mlAnalysis: SpamMlAnalysisResult?,
+    onInspectMlScore: () -> Unit,
     onCallBack: () -> Unit,
     onBlockPrefix: () -> Unit,
     modifier: Modifier = Modifier
@@ -714,7 +613,7 @@ private fun DeviceCallLogRow(
 
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+                verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Text(
                     text = displayTitle,
@@ -750,6 +649,17 @@ private fun DeviceCallLogRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+
+                if (mlAnalysis != null) {
+                    SpamProbabilityBadge(
+                        probabilityPercent = mlAnalysis.probabilityPercent,
+                        riskTier = mlAnalysis.riskTier,
+                        onClick = onInspectMlScore,
+                        modifier = Modifier
+                            .padding(top = 2.dp)
+                            .testTag("call_row_spam_badge_${entry.id}")
+                    )
+                }
             }
 
             if (entry.number.isNotBlank()) {
@@ -785,103 +695,6 @@ private fun DeviceCallLogRow(
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun ContactsPermissionCard(onGrantPermission: () -> Unit) {
-    OutlinedCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("contacts_permission_card"),
-        shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-        ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(22.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(50.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Contacts,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(26.dp)
-                )
-            }
-            Text(
-                text = stringResource(R.string.contacts_permission_title),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Text(
-                text = stringResource(R.string.contacts_permission_body),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
-            Button(
-                onClick = onGrantPermission,
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier
-                    .heightIn(min = 48.dp)
-                    .testTag("grant_contacts_button")
-            ) {
-                Text(text = stringResource(R.string.contacts_grant_permission))
-            }
-        }
-    }
-}
-
-@Composable
-private fun EmptyContactsCard() {
-    OutlinedCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("empty_contacts_card"),
-        shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-        ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(22.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Contacts,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(28.dp)
-            )
-            Text(
-                text = stringResource(R.string.contacts_empty_title),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Text(
-                text = stringResource(R.string.contacts_empty_body),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
         }
     }
 }

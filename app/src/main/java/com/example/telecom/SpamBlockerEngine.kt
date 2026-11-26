@@ -91,9 +91,24 @@ object SpamBlockerEngine {
         isHiddenOrPrivateCaller: Boolean,
         isStirShakenVerificationFailed: Boolean,
         activeManualPrefixes: List<BlockedPrefixEntity>,
-        settings: SpamBlockerSettings
+        settings: SpamBlockerSettings,
+        isCallerInContacts: Boolean = false
     ): SpamScreeningDecision {
-        // 1. Master switch check
+        // 0. Do Not Disturb (Contacts Only) mode: automatically reject all calls not in Contacts
+        if (settings.doNotDisturbEnabled) {
+            val isVerifiedContact = isCallerInContacts &&
+                !isHiddenOrPrivateCaller &&
+                !rawIncomingNumber.isNullOrBlank()
+            if (!isVerifiedContact) {
+                return SpamScreeningDecision.Block(
+                    matchedPrefix = "DND",
+                    reasonLabel = "Do Not Disturb (Not in Contacts)",
+                    silenceOnly = false
+                )
+            }
+        }
+
+        // 1. Master spam blocker switch check
         if (!settings.isSpamBlockerEnabled) {
             return SpamScreeningDecision.Allow
         }

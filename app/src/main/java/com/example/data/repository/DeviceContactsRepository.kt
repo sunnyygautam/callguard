@@ -3,6 +3,7 @@ package com.example.data.repository
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.provider.ContactsContract
 import androidx.core.content.ContextCompat
 import com.example.telecom.PhoneNumberMatcher
@@ -31,6 +32,46 @@ class DeviceContactsRepository(
             context,
             Manifest.permission.READ_CONTACTS
         ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    /**
+     * Performs a fast indexed lookup via [ContactsContract.PhoneLookup.CONTENT_FILTER_URI] to check
+     * whether [rawNumber] matches any saved contact on the device. Safe for low-latency screening
+     * inside [com.example.telecom.PrefixCallScreeningService].
+     */
+    suspend fun isNumberInContacts(rawNumber: String?): Boolean = withContext(Dispatchers.IO) {
+        val trimmed = rawNumber.orEmpty().trim()
+        if (trimmed.isEmpty() || !hasContactsPermission()) return@withContext false
+
+        if (lookupPhoneNumberExists(trimmed)) return@withContext true
+
+        val normalized = PhoneNumberMatcher.normalize(trimmed)
+        if (normalized.isNotEmpty() && normalized != trimmed) {
+            return@withContext lookupPhoneNumberExists(normalized)
+        }
+        false
+    }
+
+    private fun lookupPhoneNumberExists(phoneNumber: String): Boolean {
+        val lookupUri = Uri.withAppendedPath(
+            ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
+            Uri.encode(phoneNumber)
+        )
+        return try {
+            context.contentResolver.query(
+                lookupUri,
+                arrayOf(ContactsContract.PhoneLookup._ID),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                cursor.moveToFirst()
+            } ?: false
+        } catch (_: SecurityException) {
+            false
+        } catch (_: Exception) {
+            false
+        }
     }
 
     /**

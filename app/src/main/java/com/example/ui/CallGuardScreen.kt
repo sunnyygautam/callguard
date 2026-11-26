@@ -238,7 +238,60 @@ fun CallGuardScreen(
         }
     }
 
-    // Observe one-off ViewModel events (prefix added / deleted with Undo)
+    var includeBlockedHistoryInBackup by remember { mutableStateOf(true) }
+    var includeContactsInBackup by remember { mutableStateOf(true) }
+    var pendingExportAfterContactsPrompt by remember { mutableStateOf(false) }
+
+    // Zero-permission Storage Access Framework launcher for saving local JSON backup files
+    val createBackupDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { destinationUri ->
+        if (destinationUri != null) {
+            viewModel.exportBackupToUri(
+                destinationUri = destinationUri,
+                includeBlockedHistory = includeBlockedHistoryInBackup,
+                includeContacts = includeContactsInBackup
+            )
+        }
+    }
+
+    // Contacts permission launcher for Data Backup card (auto-continues export if triggered by Export)
+    val backupContactsPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { _ ->
+        viewModel.refreshDeviceContacts()
+        if (pendingExportAfterContactsPrompt) {
+            pendingExportAfterContactsPrompt = false
+            createBackupDocumentLauncher.launch(viewModel.createSuggestedBackupFileName())
+        }
+    }
+
+    // Contacts permission launcher for Do Not Disturb (Contacts Only) mode
+    val dndContactsPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        viewModel.refreshDeviceContacts()
+        if (granted) {
+            viewModel.setDoNotDisturbEnabled(true)
+        } else {
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar(
+                    context.getString(R.string.snackbar_dnd_contacts_required)
+                )
+            }
+        }
+    }
+
+    val startJsonBackupExport: () -> Unit = {
+        if (includeContactsInBackup && !uiState.hasContactsPermission) {
+            pendingExportAfterContactsPrompt = true
+            backupContactsPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
+        } else {
+            createBackupDocumentLauncher.launch(viewModel.createSuggestedBackupFileName())
+        }
+    }
+
+    // Observe one-off ViewModel events (prefix added / deleted with Undo / backup status)
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
             when (event) {
@@ -292,6 +345,37 @@ fun CallGuardScreen(
                     snackbarHostState.showSnackbar(
                         message = context.getString(msgRes),
                         duration = SnackbarDuration.Short
+                    )
+                }
+                is CallGuardEvent.DoNotDisturbToggled -> {
+                    val msgRes = if (event.enabled) {
+                        R.string.snackbar_dnd_enabled
+                    } else {
+                        R.string.snackbar_dnd_disabled
+                    }
+                    snackbarHostState.showSnackbar(
+                        message = context.getString(msgRes),
+                        duration = SnackbarDuration.Short
+                    )
+                }
+                is CallGuardEvent.BackupExported -> {
+                    snackbarHostState.showSnackbar(
+                        message = context.getString(
+                            R.string.snackbar_backup_exported,
+                            event.result.fileName,
+                            event.result.blockedCallCount,
+                            event.result.contactCount
+                        ),
+                        duration = SnackbarDuration.Long
+                    )
+                }
+                is CallGuardEvent.BackupExportFailed -> {
+                    snackbarHostState.showSnackbar(
+                        message = context.getString(
+                            R.string.snackbar_backup_failed,
+                            event.reason
+                        ),
+                        duration = SnackbarDuration.Long
                     )
                 }
                 CallGuardEvent.HistoryCleared -> {
@@ -518,6 +602,28 @@ fun CallGuardScreen(
                                     )
                                 }
 
+                                // Do Not Disturb (Contacts Only) Mode Toggle Card
+                                item(key = "do_not_disturb_card") {
+                                    DoNotDisturbCard(
+                                        enabled = uiState.spamBlockerSettings.doNotDisturbEnabled,
+                                        hasContactsPermission = uiState.hasContactsPermission,
+                                        onToggle = { enable ->
+                                            if (enable && !uiState.hasContactsPermission) {
+                                                dndContactsPermissionLauncher.launch(
+                                                    Manifest.permission.READ_CONTACTS
+                                                )
+                                            } else {
+                                                viewModel.setDoNotDisturbEnabled(enable)
+                                            }
+                                        },
+                                        onRequestContactsPermission = {
+                                            dndContactsPermissionLauncher.launch(
+                                                Manifest.permission.READ_CONTACTS
+                                            )
+                                        }
+                                    )
+                                }
+
                                 // Spam Call Blocker Master Switch & Real-Time Protection Layers
                                 item(key = "spam_blocker_controls") {
                                     SpamBlockerControlsCard(
@@ -548,6 +654,32 @@ fun CallGuardScreen(
                                                 viewModel.setNotificationsEnabled(true)
                                             }
                                         }
+                                    )
+                                }
+
+                                // Local JSON Data Backup & Export Card
+                                item(key = "data_backup_export") {
+                                    DataBackupExportCard(
+                                        blockedCallCount = uiState.blockedCallCount,
+                                        contactCount = uiState.deviceContacts.size,
+                                        hasContactsPermission = uiState.hasContactsPermission,
+                                        includeBlockedHistory = includeBlockedHistoryInBackup,
+                                        includeContacts = includeContactsInBackup,
+                                        isExporting = uiState.isExportingBackup,
+                                        lastBackupResult = uiState.lastBackupResult,
+                                        onToggleIncludeBlockedHistory = {
+                                            includeBlockedHistoryInBackup = it
+                                        },
+                                        onToggleIncludeContacts = {
+                                            includeContactsInBackup = it
+                                        },
+                                        onRequestContactsPermission = {
+                                            pendingExportAfterContactsPrompt = false
+                                            backupContactsPermissionLauncher.launch(
+                                                Manifest.permission.READ_CONTACTS
+                                            )
+                                        },
+                                        onExportClick = startJsonBackupExport
                                     )
                                 }
 
@@ -601,6 +733,7 @@ fun CallGuardScreen(
                                     Spacer(modifier = Modifier.height(8.dp))
                                     BlockedCallHistoryHeader(
                                         blockedCount = uiState.blockedCallCount,
+                                        onExportClick = startJsonBackupExport,
                                         onClearAllClick = { showClearHistoryDialog = true }
                                     )
                                 }

@@ -20,6 +20,12 @@ interface BlockedCallLogDao {
     fun observeAllBlockedCalls(): Flow<List<BlockedCallLogEntity>>
 
     /**
+     * One-shot snapshot of all blocked call logs ordered from most recent to oldest (for backup export).
+     */
+    @Query("SELECT * FROM blocked_call_logs ORDER BY blocked_at DESC")
+    suspend fun getAllBlockedCalls(): List<BlockedCallLogEntity>
+
+    /**
      * Inserts a new blocked call log entry and returns its generated primary key ID.
      */
     @Insert(onConflict = OnConflictStrategy.REPLACE)

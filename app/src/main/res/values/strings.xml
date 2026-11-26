@@ -208,11 +208,55 @@
     <string name="keypad_suggested_empty_idle">Start dialing or grant Contacts / Call Log access to see suggested callers here.</string>
     <string name="keypad_suggested_empty_query">No contact or recent call matches \"%1$s\".</string>
 
+    <!-- Local JSON Data Backup & Export -->
+    <string name="backup_card_title">Data Backup &amp; JSON Export</string>
+    <string name="backup_card_subtitle">Save blocked call history and contacts to a local .json file</string>
+    <string name="backup_badge_json">JSON</string>
+    <string name="backup_option_blocked_calls">Blocked Call History</string>
+    <string name="backup_option_contacts">Contact List</string>
+    <string name="backup_count_blocked_calls">%1$d blocked calls</string>
+    <string name="backup_count_contacts">%1$d contacts</string>
+    <string name="backup_contacts_permission_needed">Permission needed to include contacts</string>
+    <string name="backup_btn_allow_contacts">Allow Contacts</string>
+    <string name="backup_btn_export">Export JSON Backup</string>
+    <string name="backup_btn_exporting">Exporting Backup…</string>
+    <string name="backup_btn_quick_export">Export</string>
+    <string name="backup_cd_quick_export">Export blocked call history and contacts as JSON</string>
+    <string name="backup_last_saved">Saved %1$s • %2$d blocked, %3$d contacts</string>
+    <string name="backup_select_at_least_one">Select at least one data category to export.</string>
+
+    <!-- On-Device ML Spam Probability Analysis -->
+    <string name="ml_spam_score_badge">%1$d%% Spam</string>
+    <string name="ml_spam_probability_label">Spam Probability</string>
+    <string name="ml_risk_low">Low Risk</string>
+    <string name="ml_risk_moderate">Moderate Risk</string>
+    <string name="ml_risk_high">High Risk</string>
+    <string name="ml_risk_critical">Critical Risk</string>
+    <string name="ml_dialog_title">ML Spam Analysis</string>
+    <string name="ml_dialog_signals_header">Detected Signals &amp; Local Patterns</string>
+    <string name="ml_dialog_close">Close</string>
+    <string name="ml_dialog_block_action">Block Prefix</string>
+    <string name="ml_cd_inspect_score">Inspect ML spam probability %1$d percent</string>
+
+    <!-- Do Not Disturb (Contacts Only) Mode -->
+    <string name="dnd_title">Do Not Disturb</string>
+    <string name="dnd_status_on">Contacts Only</string>
+    <string name="dnd_status_off">Off</string>
+    <string name="dnd_subtitle_on">Automatically rejecting all incoming calls not found in your contacts.</string>
+    <string name="dnd_subtitle_off">Reject every incoming call except numbers saved in your contacts.</string>
+    <string name="dnd_contacts_permission_warning">Grant Contacts access so CallGuard can allow your saved contacts through Do Not Disturb.</string>
+    <string name="dnd_cd_switch">Enable or disable Do Not Disturb contacts-only mode</string>
+    <string name="snackbar_dnd_enabled">Do Not Disturb enabled — rejecting calls not in your contacts</string>
+    <string name="snackbar_dnd_disabled">Do Not Disturb disabled</string>
+    <string name="snackbar_dnd_contacts_required">Contacts permission is required to allow saved contacts during Do Not Disturb</string>
+
     <!-- Feedback Snackbars -->
     <string name="snackbar_prefix_added">Blocked prefix %1$s added</string>
     <string name="snackbar_prefix_deleted">Removed prefix %1$s</string>
     <string name="snackbar_log_deleted">Removed %1$s from history</string>
     <string name="snackbar_history_cleared">Blocked call history cleared</string>
+    <string name="snackbar_backup_exported">Backup saved to %1$s (%2$d blocked calls, %3$d contacts)</string>
+    <string name="snackbar_backup_failed">Backup export failed: %1$s</string>
     <string name="snackbar_undo">Undo</string>
     <string name="snackbar_role_granted">CallGuard is now your default Caller ID &amp; Spam app</string>
     <string name="snackbar_role_denied">Call Screening role was not granted</string>

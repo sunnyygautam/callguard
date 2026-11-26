@@ -1,10 +1,13 @@
 package com.example.ui
 
+import android.net.Uri
 import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.R
+import com.example.data.backup.BackupExportResult
+import com.example.data.backup.LocalBackupExporter
 import com.example.data.local.BlockedCallLogEntity
 import com.example.data.local.BlockedPrefixEntity
 import com.example.data.model.BlockedCallsSummary
@@ -18,6 +21,8 @@ import com.example.data.repository.DeviceContactsRepository
 import com.example.data.repository.PrefixRepository
 import com.example.data.repository.SpamBlockerPreferencesRepository
 import com.example.data.repository.SpamBlockerSettings
+import com.example.ml.SpamMlAnalysisResult
+import com.example.ml.SpamMlAnalysisService
 import com.example.telecom.CallScreeningStatus
 import com.example.telecom.PhoneNumberMatcher
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -79,7 +84,10 @@ data class CallGuardUiState(
     val callHistorySearchQuery: String = "",
     val hasCallLogPermission: Boolean = false,
     val hasNotificationPermission: Boolean = true,
-    val isLoadingCallHistory: Boolean = false
+    val isLoadingCallHistory: Boolean = false,
+    val callHistoryMlScores: Map<Long, SpamMlAnalysisResult> = emptyMap(),
+    val isExportingBackup: Boolean = false,
+    val lastBackupResult: BackupExportResult.Success? = null
 ) {
     val activePrefixCount: Int
         get() = prefixes.count { it.isActive }
@@ -97,6 +105,9 @@ sealed interface CallGuardEvent {
     data class BlockedCallDeleted(val log: BlockedCallLogEntity) : CallGuardEvent
     data class PrefilledBlockPrefix(val prefix: String) : CallGuardEvent
     data class SpamBlockerToggled(val enabled: Boolean) : CallGuardEvent
+    data class DoNotDisturbToggled(val enabled: Boolean) : CallGuardEvent
+    data class BackupExported(val result: BackupExportResult.Success) : CallGuardEvent
+    data class BackupExportFailed(val reason: String) : CallGuardEvent
     data object HistoryCleared : CallGuardEvent
 }
 
@@ -110,6 +121,7 @@ class CallGuardViewModel(
     private val deviceCallLogRepository: DeviceCallLogRepository,
     private val deviceContactsRepository: DeviceContactsRepository,
     private val spamPrefsRepository: SpamBlockerPreferencesRepository,
+    private val localBackupExporter: LocalBackupExporter,
     initialStatus: CallScreeningStatus
 ) : ViewModel() {
 
@@ -131,7 +143,9 @@ class CallGuardViewModel(
         val callHistorySearchQuery: String = "",
         val hasCallLogPermission: Boolean = false,
         val hasNotificationPermission: Boolean = true,
-        val isLoadingCallHistory: Boolean = false
+        val isLoadingCallHistory: Boolean = false,
+        val isExportingBackup: Boolean = false,
+        val lastBackupResult: BackupExportResult.Success? = null
     )
 
     private data class CoreShieldSnapshot(
@@ -167,6 +181,12 @@ class CallGuardViewModel(
         screeningStatus,
         phoneUiState
     ) { core, status, phone ->
+        val activePrefixes = core.prefixes.filter { it.isActive }
+        val mlScores = SpamMlAnalysisService.analyzeCallHistoryBatch(
+            callLogs = phone.deviceCallLogs,
+            contacts = phone.deviceContacts,
+            activeManualPrefixes = activePrefixes
+        )
         CallGuardUiState(
             selectedTab = phone.selectedTab,
             prefixInput = core.form.prefixInput,
@@ -187,7 +207,10 @@ class CallGuardViewModel(
             callHistorySearchQuery = phone.callHistorySearchQuery,
             hasCallLogPermission = phone.hasCallLogPermission,
             hasNotificationPermission = phone.hasNotificationPermission,
-            isLoadingCallHistory = phone.isLoadingCallHistory
+            isLoadingCallHistory = phone.isLoadingCallHistory,
+            callHistoryMlScores = mlScores,
+            isExportingBackup = phone.isExportingBackup,
+            lastBackupResult = phone.lastBackupResult
         )
     }.stateIn(
         scope = viewModelScope,
@@ -425,6 +448,13 @@ class CallGuardViewModel(
         }
     }
 
+    fun setDoNotDisturbEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            spamPrefsRepository.setDoNotDisturbEnabled(enabled)
+            _events.emit(CallGuardEvent.DoNotDisturbToggled(enabled))
+        }
+    }
+
     fun setBlockBuiltInSpamSeries(enabled: Boolean) {
         viewModelScope.launch {
             spamPrefsRepository.setBlockBuiltInSpamSeries(enabled)
@@ -471,12 +501,53 @@ class CallGuardViewModel(
         screeningStatus.value = status
     }
 
+    fun createSuggestedBackupFileName(): String =
+        localBackupExporter.createSuggestedFileName()
+
+    /**
+     * Exports blocked call history and/or device contacts to the user-selected Storage Access
+     * Framework JSON document [destinationUri].
+     */
+    fun exportBackupToUri(
+        destinationUri: Uri,
+        includeBlockedHistory: Boolean = true,
+        includeContacts: Boolean = true
+    ) {
+        if (phoneUiState.value.isExportingBackup) return
+
+        viewModelScope.launch {
+            phoneUiState.update { it.copy(isExportingBackup = true) }
+            when (
+                val result = localBackupExporter.exportToUri(
+                    destinationUri = destinationUri,
+                    includeBlockedHistory = includeBlockedHistory,
+                    includeContacts = includeContacts
+                )
+            ) {
+                is BackupExportResult.Success -> {
+                    phoneUiState.update {
+                        it.copy(
+                            isExportingBackup = false,
+                            lastBackupResult = result
+                        )
+                    }
+                    _events.emit(CallGuardEvent.BackupExported(result))
+                }
+                is BackupExportResult.Failure -> {
+                    phoneUiState.update { it.copy(isExportingBackup = false) }
+                    _events.emit(CallGuardEvent.BackupExportFailed(result.reason))
+                }
+            }
+        }
+    }
+
     class Factory(
         private val prefixRepository: PrefixRepository,
         private val callLogRepository: BlockedCallLogRepository,
         private val deviceCallLogRepository: DeviceCallLogRepository,
         private val deviceContactsRepository: DeviceContactsRepository,
         private val spamPrefsRepository: SpamBlockerPreferencesRepository,
+        private val localBackupExporter: LocalBackupExporter,
         private val initialStatus: CallScreeningStatus
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
@@ -488,6 +559,7 @@ class CallGuardViewModel(
                     deviceCallLogRepository = deviceCallLogRepository,
                     deviceContactsRepository = deviceContactsRepository,
                     spamPrefsRepository = spamPrefsRepository,
+                    localBackupExporter = localBackupExporter,
                     initialStatus = initialStatus
                 ) as T
             }

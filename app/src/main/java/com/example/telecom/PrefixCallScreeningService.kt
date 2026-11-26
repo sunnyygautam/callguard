@@ -8,8 +8,10 @@ import android.telecom.TelecomManager
 import android.util.Log
 import com.example.data.local.CallGuardDatabase
 import com.example.data.repository.BlockedCallLogRepository
+import com.example.data.repository.DeviceContactsRepository
 import com.example.data.repository.PrefixRepository
 import com.example.data.repository.SpamBlockerPreferencesRepository
+import com.example.ml.SpamMlAnalysisService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -49,6 +51,10 @@ class PrefixCallScreeningService : CallScreeningService() {
         SpamBlockerPreferencesRepository(applicationContext)
     }
 
+    private val deviceContactsRepository: DeviceContactsRepository by lazy {
+        DeviceContactsRepository(applicationContext)
+    }
+
     override fun onScreenCall(callDetails: Call.Details) {
         // 1. On Android 10+ (API 29+), screen incoming calls only (ignore outgoing calls).
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
@@ -73,18 +79,34 @@ class PrefixCallScreeningService : CallScreeningService() {
         serviceScope.launch {
             try {
                 val settings = spamPrefsRepository.getCurrentSettings()
-                if (!settings.isSpamBlockerEnabled) {
+                if (!settings.isSpamBlockerEnabled && !settings.doNotDisturbEnabled) {
                     respondAllowCall(callDetails)
                     return@launch
                 }
 
                 val activePrefixes = prefixRepository.getActivePrefixes()
+                val isCallerInContacts = if (!isHiddenOrPrivate && !rawIncomingNumber.isNullOrBlank()) {
+                    deviceContactsRepository.isNumberInContacts(rawIncomingNumber)
+                } else {
+                    false
+                }
+
+                // Compute real-time on-device ML Spam Probability against local malicious patterns
+                val mlAnalysis = SpamMlAnalysisService.analyzeNumber(
+                    rawNumber = rawIncomingNumber,
+                    activeManualPrefixes = activePrefixes,
+                    isHiddenOrPrivate = isHiddenOrPrivate,
+                    isStirShakenFailed = isStirShakenFailed,
+                    isKnownContact = isCallerInContacts
+                )
+
                 val decision = SpamBlockerEngine.evaluateIncomingCall(
                     rawIncomingNumber = rawIncomingNumber,
                     isHiddenOrPrivateCaller = isHiddenOrPrivate,
                     isStirShakenVerificationFailed = isStirShakenFailed,
                     activeManualPrefixes = activePrefixes,
-                    settings = settings
+                    settings = settings,
+                    isCallerInContacts = isCallerInContacts
                 )
 
                 when (decision) {
@@ -92,23 +114,26 @@ class PrefixCallScreeningService : CallScreeningService() {
                         Log.i(
                             TAG,
                             "Blocking spam call via '${decision.matchedPrefix}' " +
-                                "(reason='${decision.reasonLabel}', silenceOnly=${decision.silenceOnly})"
+                                "(reason='${decision.reasonLabel}', mlSpamProb=${mlAnalysis.probabilityPercent}%, " +
+                                "silenceOnly=${decision.silenceOnly})"
                         )
                         // Respond to Android Telecom immediately for minimal latency.
                         respondBlockCall(callDetails, silenceOnly = decision.silenceOnly)
 
-                        // Persist the intercepted call into local Blocked Call History.
+                        // Persist the intercepted call + ML Spam Probability into Room history.
                         try {
                             val logged = callLogRepository.logBlockedCall(
                                 incomingRawNumber = rawIncomingNumber,
                                 matchedPrefix = decision.matchedPrefix,
-                                reasonLabel = decision.reasonLabel
+                                reasonLabel = decision.reasonLabel,
+                                spamProbability = mlAnalysis.probabilityPercent,
+                                mlReason = mlAnalysis.topReason
                             )
                             if (settings.notificationsEnabled) {
                                 val ruleSummary = if (decision.reasonLabel.isNotBlank()) {
-                                    "${decision.matchedPrefix} (${decision.reasonLabel})"
+                                    "${decision.matchedPrefix} (${decision.reasonLabel} • ${mlAnalysis.probabilityPercent}% Spam)"
                                 } else {
-                                    decision.matchedPrefix
+                                    "${decision.matchedPrefix} (${mlAnalysis.probabilityPercent}% Spam)"
                                 }
                                 CallNotificationManager.showBlockedSpamNotification(
                                     context = applicationContext,
@@ -122,6 +147,11 @@ class PrefixCallScreeningService : CallScreeningService() {
                     }
 
                     SpamScreeningDecision.Allow -> {
+                        Log.d(
+                            TAG,
+                            "Allowing incoming call (mlSpamProb=${mlAnalysis.probabilityPercent}%, " +
+                                "risk=${mlAnalysis.riskTier})"
+                        )
                         respondAllowCall(callDetails)
                     }
                 }

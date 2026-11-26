@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.PhoneDisabled
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CardDefaults
@@ -27,7 +28,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,6 +42,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.data.local.BlockedCallLogEntity
+import com.example.ml.SpamMlAnalysisService
 import com.example.ui.theme.PrefixMonoStyle
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -46,6 +51,7 @@ import java.util.Locale
 @Composable
 internal fun BlockedCallHistoryHeader(
     blockedCount: Int,
+    onExportClick: () -> Unit,
     onClearAllClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -80,18 +86,41 @@ internal fun BlockedCallHistoryHeader(
             }
         }
 
-        if (blockedCount > 0) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
             TextButton(
-                onClick = onClearAllClick,
+                onClick = onExportClick,
                 modifier = Modifier
                     .minimumInteractiveComponentSize()
-                    .testTag("clear_history_button")
+                    .testTag("history_quick_export_button")
             ) {
-                Text(
-                    text = stringResource(R.string.btn_clear_history),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.error
+                Icon(
+                    imageVector = Icons.Rounded.Download,
+                    contentDescription = stringResource(R.string.backup_cd_quick_export),
+                    modifier = Modifier.size(16.dp)
                 )
+                Text(
+                    text = stringResource(R.string.backup_btn_quick_export),
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(start = 4.dp)
+                )
+            }
+
+            if (blockedCount > 0) {
+                TextButton(
+                    onClick = onClearAllClick,
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("clear_history_button")
+                ) {
+                    Text(
+                        text = stringResource(R.string.btn_clear_history),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
             }
         }
     }
@@ -105,6 +134,42 @@ internal fun BlockedCallLogRow(
 ) {
     val formattedTimestamp = remember(log.blockedAt) {
         formatBlockedTimestamp(log.blockedAt)
+    }
+    var showMlDetailDialog by remember { mutableStateOf(false) }
+
+    val mlAnalysis = remember(log.id, log.phoneNumber, log.spamProbability, log.mlReason) {
+        val computed = SpamMlAnalysisService.analyzeNumber(
+            rawNumber = log.phoneNumber,
+            isHiddenOrPrivate = log.matchedPrefix.equals("Private", ignoreCase = true) ||
+                log.normalizedNumber.isBlank(),
+            isStirShakenFailed = log.matchedPrefix.equals("STIR/SHAKEN", ignoreCase = true),
+            behaviorAnomalyScore = 0.65,
+            behaviorReasons = listOf("Intercepted & blocked by CallGuard (${log.matchedPrefix})")
+        )
+        if (log.spamProbability in 0..100) {
+            val mergedSignals = buildList {
+                if (log.mlReason.isNotBlank()) add(log.mlReason)
+                computed.signals.forEach { if (it != log.mlReason) add(it) }
+            }
+            computed.copy(
+                probability = log.spamProbability / 100.0,
+                probabilityPercent = log.spamProbability,
+                riskTier = SpamMlAnalysisService.tierForPercent(log.spamProbability),
+                topReason = log.mlReason.ifBlank { computed.topReason },
+                signals = mergedSignals
+            )
+        } else {
+            computed
+        }
+    }
+
+    if (showMlDetailDialog) {
+        SpamAnalysisDetailDialog(
+            displayTitle = log.phoneNumber,
+            phoneNumber = log.phoneNumber,
+            analysis = mlAnalysis,
+            onDismiss = { showMlDetailDialog = false }
+        )
     }
 
     OutlinedCard(
@@ -167,15 +232,22 @@ internal fun BlockedCallLogRow(
                         )
                     }
 
-                    if (log.matchedLabel.isNotBlank()) {
-                        Text(
-                            text = log.matchedLabel,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                    SpamProbabilityBadge(
+                        probabilityPercent = mlAnalysis.probabilityPercent,
+                        riskTier = mlAnalysis.riskTier,
+                        onClick = { showMlDetailDialog = true },
+                        modifier = Modifier.testTag("blocked_call_spam_badge_${log.id}")
+                    )
+                }
+
+                if (log.matchedLabel.isNotBlank()) {
+                    Text(
+                        text = log.matchedLabel,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
 
                 Text(
