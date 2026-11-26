@@ -59,8 +59,9 @@
     <string name="dialog_cancel">Cancel</string>
 
     <!-- Navigation Tabs -->
+    <string name="nav_home">Home</string>
+    <string name="nav_keypad">Keypad</string>
     <string name="nav_shield">Shield</string>
-    <string name="nav_calls">Calls</string>
 
     <!-- 7-Day Summary Dashboard -->
     <string name="dashboard_title">7-Day Blocked Summary</string>
@@ -148,6 +149,64 @@
     <string name="incall_action_hold">Hold</string>
     <string name="incall_action_keypad">Keypad</string>
     <string name="incall_protected_badge">CallGuard In-Call Shield</string>
+
+    <!-- Ringtone, Vibration & Notifications Settings -->
+    <string name="alerts_card_title">Ringtone, Vibration &amp; Notifications</string>
+    <string name="alerts_card_subtitle">Configure incoming call audio, haptics, and spam alerts</string>
+    <string name="toggle_ringtone_title">Incoming Call Ringtone</string>
+    <string name="toggle_ringtone_desc">Play your default ringtone for incoming calls</string>
+    <string name="toggle_vibration_title">Incoming Call Vibration</string>
+    <string name="toggle_vibration_desc">Vibrate rhythmically while the phone is ringing</string>
+    <string name="toggle_notifications_title">Call &amp; Spam Notifications</string>
+    <string name="toggle_notifications_desc">Show incoming call banners, missed calls, and blocked spam alerts</string>
+    <string name="btn_grant_notification_permission">Allow Notifications</string>
+    <string name="snackbar_notifications_granted">Notifications enabled</string>
+    <string name="snackbar_notifications_denied">Notification permission was denied</string>
+
+    <!-- Notification Channels & Copy -->
+    <string name="notif_channel_calls_name">Incoming &amp; Active Calls</string>
+    <string name="notif_channel_calls_desc">High-priority incoming and ongoing call alerts</string>
+    <string name="notif_channel_spam_name">Blocked Spam Alerts</string>
+    <string name="notif_channel_spam_desc">Notifications when CallGuard blocks a spam call</string>
+    <string name="notif_channel_missed_name">Missed Calls</string>
+    <string name="notif_channel_missed_desc">Alerts for unanswered incoming calls</string>
+    <string name="notif_blocked_spam_title">Spam Call Blocked</string>
+    <string name="notif_blocked_spam_body">%1$s • Blocked by %2$s</string>
+    <string name="notif_missed_call_title">Missed Call</string>
+    <string name="notif_missed_call_body">Missed incoming call from %1$s</string>
+
+    <!-- Recent Call History Search -->
+    <string name="call_history_search_placeholder">Search by name or phone number…</string>
+    <string name="call_history_search_empty_title">No Matching Calls</string>
+    <string name="call_history_search_empty_body">No calls match \"%1$s\". Try a different name, digit sequence, or filter.</string>
+    <string name="call_history_clear_search">Clear Search</string>
+
+    <!-- Home Tab: Search Contacts -->
+    <string name="home_header_title">Home</string>
+    <string name="home_header_subtitle">Search contacts and recent call history</string>
+    <string name="contacts_section_header">Contacts</string>
+    <string name="contacts_count_badge">%1$d contacts</string>
+    <string name="contacts_search_placeholder">Search contacts by name or number…</string>
+    <string name="contacts_permission_title">Allow Contacts Access</string>
+    <string name="contacts_permission_body">Grant READ_CONTACTS permission to search your contacts and see smart call suggestions in CallGuard.</string>
+    <string name="contacts_grant_permission">Grant Contacts Permission</string>
+    <string name="contacts_empty_title">No Contacts Found</string>
+    <string name="contacts_empty_body">Contacts saved on this device will appear here for quick calling and spam blocking.</string>
+    <string name="contacts_search_empty_title">No Matching Contacts</string>
+    <string name="contacts_search_empty_body">No contacts match \"%1$s\".</string>
+    <string name="contacts_refresh_cd">Refresh contacts</string>
+    <string name="contacts_show_all">Show all %1$d contacts</string>
+    <string name="contacts_show_less">Show fewer contacts</string>
+
+    <!-- Keypad Tab: Suggested Section -->
+    <string name="keypad_header_title">Keypad</string>
+    <string name="keypad_header_subtitle">Smart suggestions and quick dialer</string>
+    <string name="keypad_suggested_header">Suggested</string>
+    <string name="keypad_suggested_matches_badge">%1$d matches</string>
+    <string name="keypad_suggested_recent_badge">Recent</string>
+    <string name="keypad_suggested_contact_badge">Contact</string>
+    <string name="keypad_suggested_empty_idle">Start dialing or grant Contacts / Call Log access to see suggested callers here.</string>
+    <string name="keypad_suggested_empty_query">No contact or recent call matches \"%1$s\".</string>
 
     <!-- Feedback Snackbars -->
     <string name="snackbar_prefix_added">Blocked prefix %1$s added</string>

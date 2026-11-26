@@ -99,11 +99,23 @@ class PrefixCallScreeningService : CallScreeningService() {
 
                         // Persist the intercepted call into local Blocked Call History.
                         try {
-                            callLogRepository.logBlockedCall(
+                            val logged = callLogRepository.logBlockedCall(
                                 incomingRawNumber = rawIncomingNumber,
                                 matchedPrefix = decision.matchedPrefix,
                                 reasonLabel = decision.reasonLabel
                             )
+                            if (settings.notificationsEnabled) {
+                                val ruleSummary = if (decision.reasonLabel.isNotBlank()) {
+                                    "${decision.matchedPrefix} (${decision.reasonLabel})"
+                                } else {
+                                    decision.matchedPrefix
+                                }
+                                CallNotificationManager.showBlockedSpamNotification(
+                                    context = applicationContext,
+                                    phoneNumber = logged.phoneNumber,
+                                    matchedRuleLabel = ruleSummary
+                                )
+                            }
                         } catch (logError: Exception) {
                             Log.e(TAG, "Failed to log blocked call into Room history", logError)
                         }

@@ -1,6 +1,8 @@
 package com.example.ui
 
+import android.Manifest
 import android.app.Activity
+import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -39,6 +41,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Call
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Dialpad
+import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Label
 import androidx.compose.material.icons.outlined.PhoneInTalk
 import androidx.compose.material.icons.outlined.Security
@@ -50,6 +54,7 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Dialpad
 import androidx.compose.material.icons.rounded.GppBad
 import androidx.compose.material.icons.rounded.GppGood
+import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.VerifiedUser
 import androidx.compose.material3.Button
@@ -109,6 +114,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
 import com.example.data.local.BlockedPrefixEntity
+import com.example.telecom.CallNotificationManager
 import com.example.telecom.CallScreeningRoleHelper
 import com.example.telecom.CallScreeningStatus
 import com.example.ui.theme.BannerNavyDeep
@@ -149,15 +155,19 @@ fun CallGuardScreen(
     val coroutineScope = rememberCoroutineScope()
     var showClearHistoryDialog by remember { mutableStateOf(false) }
 
-    // Re-check role, phone permissions, and recent call history on resume.
+    // Re-check role, phone permissions, notification permission, contacts, and call history on resume.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         viewModel.updateScreeningStatus(CallScreeningRoleHelper.getStatus(context))
+        viewModel.updateNotificationPermissionStatus(
+            CallNotificationManager.hasNotificationPermission(context)
+        )
+        viewModel.refreshDeviceContacts()
         viewModel.refreshDeviceCallHistory()
     }
 
-    // Pressing Back from the secondary Calls tab returns cleanly to Shield.
-    BackHandler(enabled = uiState.selectedTab != CallGuardTab.SHIELD) {
-        viewModel.selectTab(CallGuardTab.SHIELD)
+    // Pressing Back from secondary tabs (Keypad / Shield) returns cleanly to Home.
+    BackHandler(enabled = uiState.selectedTab != CallGuardTab.HOME) {
+        viewModel.selectTab(CallGuardTab.HOME)
     }
 
     // Activity Result launcher for RoleManager.createRequestRoleIntent(ROLE_DIALER)
@@ -206,6 +216,25 @@ fun CallGuardScreen(
         }
         coroutineScope.launch {
             snackbarHostState.showSnackbar(context.getString(messageRes))
+        }
+    }
+
+    // Activity Result launcher for Android 13+ POST_NOTIFICATIONS permission
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        viewModel.updateNotificationPermissionStatus(granted)
+        if (granted) {
+            CallNotificationManager.ensureChannels(context)
+            viewModel.setNotificationsEnabled(true)
+        }
+        val msgRes = if (granted) {
+            R.string.snackbar_notifications_granted
+        } else {
+            R.string.snackbar_notifications_denied
+        }
+        coroutineScope.launch {
+            snackbarHostState.showSnackbar(context.getString(msgRes))
         }
     }
 
@@ -303,6 +332,38 @@ fun CallGuardScreen(
                         tonalElevation = 3.dp
                     ) {
                         NavigationBarItem(
+                            selected = uiState.selectedTab == CallGuardTab.HOME,
+                            onClick = { viewModel.selectTab(CallGuardTab.HOME) },
+                            icon = {
+                                Icon(
+                                    imageVector = if (uiState.selectedTab == CallGuardTab.HOME) {
+                                        Icons.Rounded.Home
+                                    } else {
+                                        Icons.Outlined.Home
+                                    },
+                                    contentDescription = stringResource(R.string.nav_home)
+                                )
+                            },
+                            label = { Text(stringResource(R.string.nav_home)) },
+                            modifier = Modifier.testTag("nav_tab_home")
+                        )
+                        NavigationBarItem(
+                            selected = uiState.selectedTab == CallGuardTab.KEYPAD,
+                            onClick = { viewModel.selectTab(CallGuardTab.KEYPAD) },
+                            icon = {
+                                Icon(
+                                    imageVector = if (uiState.selectedTab == CallGuardTab.KEYPAD) {
+                                        Icons.Rounded.Dialpad
+                                    } else {
+                                        Icons.Outlined.Dialpad
+                                    },
+                                    contentDescription = stringResource(R.string.nav_keypad)
+                                )
+                            },
+                            label = { Text(stringResource(R.string.nav_keypad)) },
+                            modifier = Modifier.testTag("nav_tab_keypad")
+                        )
+                        NavigationBarItem(
                             selected = uiState.selectedTab == CallGuardTab.SHIELD,
                             onClick = { viewModel.selectTab(CallGuardTab.SHIELD) },
                             icon = {
@@ -317,22 +378,6 @@ fun CallGuardScreen(
                             },
                             label = { Text(stringResource(R.string.nav_shield)) },
                             modifier = Modifier.testTag("nav_tab_shield")
-                        )
-                        NavigationBarItem(
-                            selected = uiState.selectedTab == CallGuardTab.CALLS,
-                            onClick = { viewModel.selectTab(CallGuardTab.CALLS) },
-                            icon = {
-                                Icon(
-                                    imageVector = if (uiState.selectedTab == CallGuardTab.CALLS) {
-                                        Icons.Rounded.Call
-                                    } else {
-                                        Icons.Outlined.Call
-                                    },
-                                    contentDescription = stringResource(R.string.nav_calls)
-                                )
-                            },
-                            label = { Text(stringResource(R.string.nav_calls)) },
-                            modifier = Modifier.testTag("nav_tab_calls")
                         )
                     }
                 }
@@ -349,6 +394,38 @@ fun CallGuardScreen(
                     ) {
                         Spacer(modifier = Modifier.height(12.dp))
                         NavigationRailItem(
+                            selected = uiState.selectedTab == CallGuardTab.HOME,
+                            onClick = { viewModel.selectTab(CallGuardTab.HOME) },
+                            icon = {
+                                Icon(
+                                    imageVector = if (uiState.selectedTab == CallGuardTab.HOME) {
+                                        Icons.Rounded.Home
+                                    } else {
+                                        Icons.Outlined.Home
+                                    },
+                                    contentDescription = stringResource(R.string.nav_home)
+                                )
+                            },
+                            label = { Text(stringResource(R.string.nav_home)) },
+                            modifier = Modifier.testTag("nav_rail_home")
+                        )
+                        NavigationRailItem(
+                            selected = uiState.selectedTab == CallGuardTab.KEYPAD,
+                            onClick = { viewModel.selectTab(CallGuardTab.KEYPAD) },
+                            icon = {
+                                Icon(
+                                    imageVector = if (uiState.selectedTab == CallGuardTab.KEYPAD) {
+                                        Icons.Rounded.Dialpad
+                                    } else {
+                                        Icons.Outlined.Dialpad
+                                    },
+                                    contentDescription = stringResource(R.string.nav_keypad)
+                                )
+                            },
+                            label = { Text(stringResource(R.string.nav_keypad)) },
+                            modifier = Modifier.testTag("nav_rail_keypad")
+                        )
+                        NavigationRailItem(
                             selected = uiState.selectedTab == CallGuardTab.SHIELD,
                             onClick = { viewModel.selectTab(CallGuardTab.SHIELD) },
                             icon = {
@@ -363,22 +440,6 @@ fun CallGuardScreen(
                             },
                             label = { Text(stringResource(R.string.nav_shield)) },
                             modifier = Modifier.testTag("nav_rail_shield")
-                        )
-                        NavigationRailItem(
-                            selected = uiState.selectedTab == CallGuardTab.CALLS,
-                            onClick = { viewModel.selectTab(CallGuardTab.CALLS) },
-                            icon = {
-                                Icon(
-                                    imageVector = if (uiState.selectedTab == CallGuardTab.CALLS) {
-                                        Icons.Rounded.Call
-                                    } else {
-                                        Icons.Outlined.Call
-                                    },
-                                    contentDescription = stringResource(R.string.nav_calls)
-                                )
-                            },
-                            label = { Text(stringResource(R.string.nav_calls)) },
-                            modifier = Modifier.testTag("nav_rail_calls")
                         )
                     }
                 }
@@ -469,6 +530,27 @@ fun CallGuardScreen(
                                     )
                                 }
 
+                                // Ringtone, Vibration & Notifications Controls Card
+                                item(key = "call_alerts_settings") {
+                                    CallAlertsSettingsCard(
+                                        settings = uiState.spamBlockerSettings,
+                                        hasNotificationPermission = uiState.hasNotificationPermission,
+                                        onToggleRingtone = viewModel::setRingtoneEnabled,
+                                        onToggleVibration = viewModel::setVibrationEnabled,
+                                        onToggleNotifications = viewModel::setNotificationsEnabled,
+                                        onRequestNotificationPermission = {
+                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                                notificationPermissionLauncher.launch(
+                                                    Manifest.permission.POST_NOTIFICATIONS
+                                                )
+                                            } else {
+                                                viewModel.updateNotificationPermissionStatus(true)
+                                                viewModel.setNotificationsEnabled(true)
+                                            }
+                                        }
+                                    )
+                                }
+
                                 // Manual Prefix Entry Form Card
                                 item(key = "add_prefix_form") {
                                     AddPrefixFormCard(
@@ -548,14 +630,31 @@ fun CallGuardScreen(
                         }
                     }
 
-                    CallGuardTab.CALLS -> {
-                        DialerAndCallHistoryScreen(
+                    CallGuardTab.HOME -> {
+                        HomeContactsScreen(
+                            uiState = uiState,
+                            onContactsSearchChanged = viewModel::onContactsSearchChanged,
+                            onRefreshContacts = viewModel::refreshDeviceContacts,
+                            onCallHistoryFilterSelected = viewModel::onCallHistoryFilterSelected,
+                            onCallHistorySearchChanged = viewModel::onCallHistorySearchChanged,
+                            onRefreshCallHistory = viewModel::refreshDeviceCallHistory,
+                            onQuickBlockNumber = viewModel::prefillBlockPrefixFromCall,
+                            onShowMessage = { message ->
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar(message)
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+
+                    CallGuardTab.KEYPAD -> {
+                        KeypadScreen(
                             uiState = uiState,
                             onDialerDigitPressed = viewModel::onDialerDigitPressed,
+                            onDialerNumberSelected = viewModel::onDialerNumberSelected,
                             onDialerBackspace = viewModel::onDialerBackspace,
                             onDialerClear = viewModel::onDialerClear,
-                            onFilterSelected = viewModel::onCallHistoryFilterSelected,
-                            onRefreshCallHistory = viewModel::refreshDeviceCallHistory,
                             onQuickBlockNumber = viewModel::prefillBlockPrefixFromCall,
                             onShowMessage = { message ->
                                 coroutineScope.launch {

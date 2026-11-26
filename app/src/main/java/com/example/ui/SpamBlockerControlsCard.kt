@@ -14,10 +14,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material.icons.outlined.PersonOff
 import androidx.compose.material.icons.outlined.Report
 import androidx.compose.material.icons.outlined.VerifiedUser
+import androidx.compose.material.icons.outlined.Vibration
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -285,5 +288,99 @@ private fun SpamProtectionLayerRow(
                 .minimumInteractiveComponentSize()
                 .testTag(testTag)
         )
+    }
+}
+
+/**
+ * Dedicated settings card for Incoming Ringtone, Vibration, and Call/Spam Notifications.
+ */
+@Composable
+internal fun CallAlertsSettingsCard(
+    settings: SpamBlockerSettings,
+    hasNotificationPermission: Boolean,
+    onToggleRingtone: (Boolean) -> Unit,
+    onToggleVibration: (Boolean) -> Unit,
+    onToggleNotifications: (Boolean) -> Unit,
+    onRequestNotificationPermission: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    OutlinedCard(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("call_alerts_settings_card"),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        elevation = CardDefaults.outlinedCardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = stringResource(R.string.alerts_card_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = stringResource(R.string.alerts_card_subtitle),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            SpamProtectionLayerRow(
+                icon = Icons.Outlined.NotificationsActive,
+                title = stringResource(R.string.toggle_ringtone_title),
+                description = stringResource(R.string.toggle_ringtone_desc),
+                checked = settings.ringtoneEnabled,
+                onCheckedChange = onToggleRingtone,
+                testTag = "toggle_ringtone_enabled"
+            )
+
+            SpamProtectionLayerRow(
+                icon = Icons.Outlined.Vibration,
+                title = stringResource(R.string.toggle_vibration_title),
+                description = stringResource(R.string.toggle_vibration_desc),
+                checked = settings.vibrationEnabled,
+                onCheckedChange = onToggleVibration,
+                testTag = "toggle_vibration_enabled"
+            )
+
+            SpamProtectionLayerRow(
+                icon = Icons.Outlined.Notifications,
+                title = stringResource(R.string.toggle_notifications_title),
+                description = stringResource(R.string.toggle_notifications_desc),
+                checked = settings.notificationsEnabled && hasNotificationPermission,
+                onCheckedChange = { enable ->
+                    if (enable && !hasNotificationPermission) {
+                        onRequestNotificationPermission()
+                    } else {
+                        onToggleNotifications(enable)
+                    }
+                },
+                testTag = "toggle_notifications_enabled"
+            )
+
+            if (!hasNotificationPermission) {
+                androidx.compose.material3.OutlinedButton(
+                    onClick = onRequestNotificationPermission,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("grant_notification_permission_button")
+                ) {
+                    Text(
+                        text = stringResource(R.string.btn_grant_notification_permission),
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+            }
+        }
     }
 }

@@ -15,18 +15,23 @@ private val Context.spamBlockerDataStore: DataStore<Preferences> by preferencesD
 )
 
 /**
- * User-configurable spam call blocking settings persisted locally via Jetpack DataStore.
+ * User-configurable spam blocking, ringtone, vibration, and notification settings
+ * persisted locally via Jetpack DataStore.
  */
 data class SpamBlockerSettings(
     val isSpamBlockerEnabled: Boolean = true,
     val blockBuiltInSpamSeries: Boolean = true,
     val blockHiddenPrivateCalls: Boolean = false,
     val blockSpoofedStirShakenCalls: Boolean = true,
-    val silenceOnlyMode: Boolean = false
+    val silenceOnlyMode: Boolean = false,
+    val ringtoneEnabled: Boolean = true,
+    val vibrationEnabled: Boolean = true,
+    val notificationsEnabled: Boolean = true
 )
 
 /**
- * Persists and streams [SpamBlockerSettings] for both the Compose UI and [com.example.telecom.PrefixCallScreeningService].
+ * Persists and streams [SpamBlockerSettings] for the Compose UI, [com.example.telecom.PrefixCallScreeningService],
+ * and [com.example.telecom.CallGuardInCallService].
  */
 class SpamBlockerPreferencesRepository(
     private val context: Context
@@ -37,6 +42,9 @@ class SpamBlockerPreferencesRepository(
         val BLOCK_HIDDEN_PRIVATE_CALLS = booleanPreferencesKey("block_hidden_private_calls")
         val BLOCK_SPOOFED_STIR_SHAKEN = booleanPreferencesKey("block_spoofed_stir_shaken")
         val SILENCE_ONLY_MODE = booleanPreferencesKey("silence_only_mode")
+        val RINGTONE_ENABLED = booleanPreferencesKey("ringtone_enabled")
+        val VIBRATION_ENABLED = booleanPreferencesKey("vibration_enabled")
+        val NOTIFICATIONS_ENABLED = booleanPreferencesKey("notifications_enabled")
     }
 
     val settings: Flow<SpamBlockerSettings> = context.spamBlockerDataStore.data.map { prefs ->
@@ -45,7 +53,10 @@ class SpamBlockerPreferencesRepository(
             blockBuiltInSpamSeries = prefs[Keys.BLOCK_BUILTIN_SPAM_SERIES] ?: true,
             blockHiddenPrivateCalls = prefs[Keys.BLOCK_HIDDEN_PRIVATE_CALLS] ?: false,
             blockSpoofedStirShakenCalls = prefs[Keys.BLOCK_SPOOFED_STIR_SHAKEN] ?: true,
-            silenceOnlyMode = prefs[Keys.SILENCE_ONLY_MODE] ?: false
+            silenceOnlyMode = prefs[Keys.SILENCE_ONLY_MODE] ?: false,
+            ringtoneEnabled = prefs[Keys.RINGTONE_ENABLED] ?: true,
+            vibrationEnabled = prefs[Keys.VIBRATION_ENABLED] ?: true,
+            notificationsEnabled = prefs[Keys.NOTIFICATIONS_ENABLED] ?: true
         )
     }
 
@@ -69,5 +80,17 @@ class SpamBlockerPreferencesRepository(
 
     suspend fun setSilenceOnlyMode(enabled: Boolean) {
         context.spamBlockerDataStore.edit { it[Keys.SILENCE_ONLY_MODE] = enabled }
+    }
+
+    suspend fun setRingtoneEnabled(enabled: Boolean) {
+        context.spamBlockerDataStore.edit { it[Keys.RINGTONE_ENABLED] = enabled }
+    }
+
+    suspend fun setVibrationEnabled(enabled: Boolean) {
+        context.spamBlockerDataStore.edit { it[Keys.VIBRATION_ENABLED] = enabled }
+    }
+
+    suspend fun setNotificationsEnabled(enabled: Boolean) {
+        context.spamBlockerDataStore.edit { it[Keys.NOTIFICATIONS_ENABLED] = enabled }
     }
 }

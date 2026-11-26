@@ -13,6 +13,8 @@ import com.example.data.repository.AddPrefixResult
 import com.example.data.repository.BlockedCallLogRepository
 import com.example.data.repository.DeviceCallLogEntry
 import com.example.data.repository.DeviceCallLogRepository
+import com.example.data.repository.DeviceContactEntry
+import com.example.data.repository.DeviceContactsRepository
 import com.example.data.repository.PrefixRepository
 import com.example.data.repository.SpamBlockerPreferencesRepository
 import com.example.data.repository.SpamBlockerSettings
@@ -33,8 +35,9 @@ import kotlinx.coroutines.launch
  * Top-level destinations in CallGuard.
  */
 enum class CallGuardTab {
-    SHIELD,
-    CALLS
+    HOME,
+    KEYPAD,
+    SHIELD
 }
 
 /**
@@ -48,11 +51,11 @@ enum class CallHistoryFilter {
 }
 
 /**
- * Immutable UI state for CallGuard's Shield dashboard, prefix rules, blocked call logs,
- * dialer keypad, and device call history.
+ * Immutable UI state for CallGuard's Home (Search Contacts & Call History),
+ * Keypad (Suggested & Dialer), and Shield (Dashboard, Spam Blocker, Prefixes, Blocked History).
  */
 data class CallGuardUiState(
-    val selectedTab: CallGuardTab = CallGuardTab.SHIELD,
+    val selectedTab: CallGuardTab = CallGuardTab.HOME,
     val prefixInput: String = "",
     val labelInput: String = "",
     @StringRes val prefixErrorRes: Int? = null,
@@ -67,9 +70,15 @@ data class CallGuardUiState(
         hasPhonePermissions = false
     ),
     val dialerInput: String = "",
+    val deviceContacts: List<DeviceContactEntry> = emptyList(),
+    val contactsSearchQuery: String = "",
+    val hasContactsPermission: Boolean = false,
+    val isLoadingContacts: Boolean = false,
     val deviceCallLogs: List<DeviceCallLogEntry> = emptyList(),
     val callHistoryFilter: CallHistoryFilter = CallHistoryFilter.ALL,
+    val callHistorySearchQuery: String = "",
     val hasCallLogPermission: Boolean = false,
+    val hasNotificationPermission: Boolean = true,
     val isLoadingCallHistory: Boolean = false
 ) {
     val activePrefixCount: Int
@@ -92,13 +101,14 @@ sealed interface CallGuardEvent {
 }
 
 /**
- * ViewModel managing prefix rules, 7-day blocked call analytics, blocked call history,
- * dialer state, and Android system call history.
+ * ViewModel managing Home contacts & call history, Keypad dialer & suggestions,
+ * and Shield spam blocker rules & analytics.
  */
 class CallGuardViewModel(
     private val prefixRepository: PrefixRepository,
     private val callLogRepository: BlockedCallLogRepository,
     private val deviceCallLogRepository: DeviceCallLogRepository,
+    private val deviceContactsRepository: DeviceContactsRepository,
     private val spamPrefsRepository: SpamBlockerPreferencesRepository,
     initialStatus: CallScreeningStatus
 ) : ViewModel() {
@@ -110,18 +120,34 @@ class CallGuardViewModel(
     )
 
     private data class PhoneUiState(
-        val selectedTab: CallGuardTab = CallGuardTab.SHIELD,
+        val selectedTab: CallGuardTab = CallGuardTab.HOME,
         val dialerInput: String = "",
+        val deviceContacts: List<DeviceContactEntry> = emptyList(),
+        val contactsSearchQuery: String = "",
+        val hasContactsPermission: Boolean = false,
+        val isLoadingContacts: Boolean = false,
         val deviceCallLogs: List<DeviceCallLogEntry> = emptyList(),
         val callHistoryFilter: CallHistoryFilter = CallHistoryFilter.ALL,
+        val callHistorySearchQuery: String = "",
         val hasCallLogPermission: Boolean = false,
+        val hasNotificationPermission: Boolean = true,
         val isLoadingCallHistory: Boolean = false
+    )
+
+    private data class CoreShieldSnapshot(
+        val form: FormState,
+        val prefixes: List<BlockedPrefixEntity>,
+        val callLogs: List<BlockedCallLogEntity>,
+        val spamSettings: SpamBlockerSettings
     )
 
     private val formState = MutableStateFlow(FormState())
     private val screeningStatus = MutableStateFlow(initialStatus)
     private val phoneUiState = MutableStateFlow(
-        PhoneUiState(hasCallLogPermission = deviceCallLogRepository.hasCallLogPermission())
+        PhoneUiState(
+            hasContactsPermission = deviceContactsRepository.hasContactsPermission(),
+            hasCallLogPermission = deviceCallLogRepository.hasCallLogPermission()
+        )
     )
 
     private val _events = MutableSharedFlow<CallGuardEvent>()
@@ -135,13 +161,6 @@ class CallGuardViewModel(
     ) { form, prefixes, callLogs, spamSettings ->
         CoreShieldSnapshot(form, prefixes, callLogs, spamSettings)
     }
-
-    private data class CoreShieldSnapshot(
-        val form: FormState,
-        val prefixes: List<BlockedPrefixEntity>,
-        val callLogs: List<BlockedCallLogEntity>,
-        val spamSettings: SpamBlockerSettings
-    )
 
     val uiState: StateFlow<CallGuardUiState> = combine(
         coreShieldState,
@@ -159,9 +178,15 @@ class CallGuardViewModel(
             spamBlockerSettings = core.spamSettings,
             screeningStatus = status,
             dialerInput = phone.dialerInput,
+            deviceContacts = phone.deviceContacts,
+            contactsSearchQuery = phone.contactsSearchQuery,
+            hasContactsPermission = phone.hasContactsPermission,
+            isLoadingContacts = phone.isLoadingContacts,
             deviceCallLogs = phone.deviceCallLogs,
             callHistoryFilter = phone.callHistoryFilter,
+            callHistorySearchQuery = phone.callHistorySearchQuery,
             hasCallLogPermission = phone.hasCallLogPermission,
+            hasNotificationPermission = phone.hasNotificationPermission,
             isLoadingCallHistory = phone.isLoadingCallHistory
         )
     }.stateIn(
@@ -169,17 +194,20 @@ class CallGuardViewModel(
         started = SharingStarted.WhileSubscribed(5_000L),
         initialValue = CallGuardUiState(
             screeningStatus = initialStatus,
+            hasContactsPermission = deviceContactsRepository.hasContactsPermission(),
             hasCallLogPermission = deviceCallLogRepository.hasCallLogPermission()
         )
     )
 
     init {
+        refreshDeviceContacts()
         refreshDeviceCallHistory()
     }
 
     fun selectTab(tab: CallGuardTab) {
         phoneUiState.update { it.copy(selectedTab = tab) }
-        if (tab == CallGuardTab.CALLS) {
+        if (tab == CallGuardTab.HOME || tab == CallGuardTab.KEYPAD) {
+            refreshDeviceContacts()
             refreshDeviceCallHistory()
         }
     }
@@ -206,7 +234,7 @@ class CallGuardViewModel(
     }
 
     /**
-     * Prefills a caller number from the Dialer or Recent Call History into the Shield
+     * Prefills a caller number from Home Contacts, Recent Calls, or Keypad into the Shield
      * Add Prefix input and switches to the Shield tab for quick one-tap blocking.
      */
     fun prefillBlockPrefixFromCall(rawNumber: String, callerName: String?) {
@@ -292,6 +320,10 @@ class CallGuardViewModel(
         }
     }
 
+    fun onDialerNumberSelected(number: String) {
+        phoneUiState.update { it.copy(dialerInput = number.trim().take(20)) }
+    }
+
     fun onDialerBackspace() {
         phoneUiState.update { current ->
             if (current.dialerInput.isEmpty()) current
@@ -304,21 +336,60 @@ class CallGuardViewModel(
     }
 
     /**
-     * Handles incoming ACTION_DIAL or ACTION_VIEW `tel:` intents from other apps.
+     * Handles incoming ACTION_DIAL or ACTION_VIEW `tel:` intents by opening the Keypad tab.
      */
     fun onExternalDialIntent(rawNumber: String?) {
         val cleaned = rawNumber.orEmpty().trim()
         phoneUiState.update { current ->
             current.copy(
-                selectedTab = CallGuardTab.CALLS,
+                selectedTab = CallGuardTab.KEYPAD,
                 dialerInput = if (cleaned.isNotEmpty()) cleaned.take(20) else current.dialerInput
             )
         }
+        refreshDeviceContacts()
         refreshDeviceCallHistory()
+    }
+
+    fun onContactsSearchChanged(query: String) {
+        phoneUiState.update { it.copy(contactsSearchQuery = query.take(60)) }
     }
 
     fun onCallHistoryFilterSelected(filter: CallHistoryFilter) {
         phoneUiState.update { it.copy(callHistoryFilter = filter) }
+    }
+
+    fun onCallHistorySearchChanged(query: String) {
+        phoneUiState.update { it.copy(callHistorySearchQuery = query.take(60)) }
+    }
+
+    fun updateNotificationPermissionStatus(granted: Boolean) {
+        phoneUiState.update { it.copy(hasNotificationPermission = granted) }
+    }
+
+    fun refreshDeviceContacts() {
+        val hasPermission = deviceContactsRepository.hasContactsPermission()
+        if (!hasPermission) {
+            phoneUiState.update {
+                it.copy(
+                    hasContactsPermission = false,
+                    deviceContacts = emptyList(),
+                    isLoadingContacts = false
+                )
+            }
+            return
+        }
+
+        viewModelScope.launch {
+            phoneUiState.update { it.copy(hasContactsPermission = true, isLoadingContacts = true) }
+            val contacts = deviceContactsRepository.fetchContacts()
+            phoneUiState.update {
+                it.copy(
+                    hasContactsPermission = true,
+                    deviceContacts = contacts,
+                    isLoadingContacts = false
+                )
+            }
+        }
     }
 
     fun refreshDeviceCallHistory() {
@@ -378,6 +449,24 @@ class CallGuardViewModel(
         }
     }
 
+    fun setRingtoneEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            spamPrefsRepository.setRingtoneEnabled(enabled)
+        }
+    }
+
+    fun setVibrationEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            spamPrefsRepository.setVibrationEnabled(enabled)
+        }
+    }
+
+    fun setNotificationsEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            spamPrefsRepository.setNotificationsEnabled(enabled)
+        }
+    }
+
     fun updateScreeningStatus(status: CallScreeningStatus) {
         screeningStatus.value = status
     }
@@ -386,6 +475,7 @@ class CallGuardViewModel(
         private val prefixRepository: PrefixRepository,
         private val callLogRepository: BlockedCallLogRepository,
         private val deviceCallLogRepository: DeviceCallLogRepository,
+        private val deviceContactsRepository: DeviceContactsRepository,
         private val spamPrefsRepository: SpamBlockerPreferencesRepository,
         private val initialStatus: CallScreeningStatus
     ) : ViewModelProvider.Factory {
@@ -396,6 +486,7 @@ class CallGuardViewModel(
                     prefixRepository = prefixRepository,
                     callLogRepository = callLogRepository,
                     deviceCallLogRepository = deviceCallLogRepository,
+                    deviceContactsRepository = deviceContactsRepository,
                     spamPrefsRepository = spamPrefsRepository,
                     initialStatus = initialStatus
                 ) as T

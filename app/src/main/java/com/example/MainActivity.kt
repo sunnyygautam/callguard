@@ -9,8 +9,10 @@ import androidx.activity.viewModels
 import com.example.data.local.CallGuardDatabase
 import com.example.data.repository.BlockedCallLogRepository
 import com.example.data.repository.DeviceCallLogRepository
+import com.example.data.repository.DeviceContactsRepository
 import com.example.data.repository.PrefixRepository
 import com.example.data.repository.SpamBlockerPreferencesRepository
+import com.example.telecom.CallNotificationManager
 import com.example.telecom.CallScreeningRoleHelper
 import com.example.ui.CallGuardScreen
 import com.example.ui.CallGuardViewModel
@@ -24,6 +26,7 @@ class MainActivity : ComponentActivity() {
             prefixRepository = PrefixRepository(database.blockedPrefixDao()),
             callLogRepository = BlockedCallLogRepository(database.blockedCallLogDao()),
             deviceCallLogRepository = DeviceCallLogRepository(applicationContext),
+            deviceContactsRepository = DeviceContactsRepository(applicationContext),
             spamPrefsRepository = SpamBlockerPreferencesRepository(applicationContext),
             initialStatus = CallScreeningRoleHelper.getStatus(applicationContext)
         )
@@ -32,6 +35,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        CallNotificationManager.ensureChannels(applicationContext)
         handleDialIntent(intent)
 
         setContent {
