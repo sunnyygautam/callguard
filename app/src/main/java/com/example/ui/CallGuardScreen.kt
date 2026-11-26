@@ -6,12 +6,10 @@ import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -32,23 +30,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Call
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Dialpad
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Label
 import androidx.compose.material.icons.outlined.PhoneInTalk
 import androidx.compose.material.icons.outlined.Security
-import androidx.compose.material.icons.outlined.Shield
-import androidx.compose.material.icons.rounded.AddModerator
-import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Dialpad
@@ -62,25 +49,17 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
-import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.SuggestionChip
-import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
@@ -97,43 +76,25 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
-import com.example.data.local.BlockedPrefixEntity
+import com.example.data.local.CallRecordingEntity
+import com.example.telecom.CallAudioRecorder
 import com.example.telecom.CallNotificationManager
 import com.example.telecom.CallScreeningRoleHelper
 import com.example.telecom.CallScreeningStatus
 import com.example.ui.theme.BannerNavyDeep
 import com.example.ui.theme.BannerNavyMid
-import com.example.ui.theme.PrefixMonoStyle
 import com.example.ui.theme.ShieldActiveEmerald
 import com.example.ui.theme.ShieldWarningAmber
 import kotlinx.coroutines.launch
-
-private data class QuickPrefixPreset(
-    val prefix: String,
-    val label: String
-)
-
-private val COMMON_SPAM_SERIES = listOf(
-    QuickPrefixPreset("+91140", "Telemarketer"),
-    QuickPrefixPreset("+1800", "Toll-Free Spam"),
-    QuickPrefixPreset("0114", "Promotional")
-)
 
 /**
  * Primary single-screen Jetpack Compose UI for CallGuard.
@@ -149,25 +110,31 @@ fun CallGuardScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val focusManager = LocalFocusManager.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     var showClearHistoryDialog by remember { mutableStateOf(false) }
 
-    // Re-check role, phone permissions, notification permission, contacts, and call history on resume.
+    // Re-check role, phone permissions, mic permission, notification permission, contacts, and call history on resume.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         viewModel.updateScreeningStatus(CallScreeningRoleHelper.getStatus(context))
         viewModel.updateNotificationPermissionStatus(
             CallNotificationManager.hasNotificationPermission(context)
+        )
+        viewModel.updateRecordAudioPermissionStatus(
+            CallAudioRecorder.hasRecordAudioPermission(context)
         )
         viewModel.refreshDeviceContacts()
         viewModel.refreshDeviceCallHistory()
     }
 
     // Pressing Back from secondary tabs (Keypad / Shield) returns cleanly to Home
-    // when not inside the Shield Blocked List sub-screen (which handles its own BackHandler).
-    BackHandler(enabled = uiState.selectedTab != CallGuardTab.HOME && !uiState.isBlockedListScreenOpen) {
+    // when not inside a Shield sub-screen (Blocked List / Call Recordings handle their own BackHandler).
+    BackHandler(
+        enabled = uiState.selectedTab != CallGuardTab.HOME &&
+            !uiState.isBlockedListScreenOpen &&
+            !uiState.isCallRecordingsScreenOpen
+    ) {
         viewModel.selectTab(CallGuardTab.HOME)
     }
 
@@ -283,6 +250,38 @@ fun CallGuardScreen(
         }
     }
 
+    // Microphone permission launcher for Call Recording
+    var pendingEnableRecordingAfterMicPrompt by remember { mutableStateOf(false) }
+    val recordAudioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        viewModel.updateRecordAudioPermissionStatus(granted)
+        if (granted) {
+            if (pendingEnableRecordingAfterMicPrompt) {
+                viewModel.setCallRecordingEnabled(true)
+            }
+        } else {
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar(
+                    context.getString(R.string.snackbar_mic_permission_required)
+                )
+            }
+        }
+        pendingEnableRecordingAfterMicPrompt = false
+    }
+
+    // Storage Access Framework launcher for exporting a saved .m4a call recording
+    var pendingExportRecording by remember { mutableStateOf<CallRecordingEntity?>(null) }
+    val exportRecordingDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("audio/mp4")
+    ) { destinationUri ->
+        val recording = pendingExportRecording
+        pendingExportRecording = null
+        if (destinationUri != null && recording != null) {
+            viewModel.exportCallRecordingToUri(recording, destinationUri)
+        }
+    }
+
     val startJsonBackupExport: () -> Unit = {
         if (includeContactsInBackup && !uiState.hasContactsPermission) {
             pendingExportAfterContactsPrompt = true
@@ -356,6 +355,41 @@ fun CallGuardScreen(
                     }
                     snackbarHostState.showSnackbar(
                         message = context.getString(msgRes),
+                        duration = SnackbarDuration.Short
+                    )
+                }
+                is CallGuardEvent.CallRecordingToggled -> {
+                    val msgRes = if (event.enabled) {
+                        R.string.snackbar_call_recording_enabled
+                    } else {
+                        R.string.snackbar_call_recording_disabled
+                    }
+                    snackbarHostState.showSnackbar(
+                        message = context.getString(msgRes),
+                        duration = SnackbarDuration.Short
+                    )
+                }
+                is CallGuardEvent.RecordingDeleted -> {
+                    snackbarHostState.showSnackbar(
+                        message = context.getString(R.string.snackbar_recording_deleted, event.label),
+                        duration = SnackbarDuration.Short
+                    )
+                }
+                is CallGuardEvent.RecordingExported -> {
+                    snackbarHostState.showSnackbar(
+                        message = context.getString(R.string.snackbar_recording_exported, event.fileName),
+                        duration = SnackbarDuration.Short
+                    )
+                }
+                is CallGuardEvent.RecordingExportFailed -> {
+                    snackbarHostState.showSnackbar(
+                        message = context.getString(R.string.snackbar_recording_export_failed, event.reason),
+                        duration = SnackbarDuration.Long
+                    )
+                }
+                CallGuardEvent.RecordingsCleared -> {
+                    snackbarHostState.showSnackbar(
+                        message = context.getString(R.string.snackbar_recordings_cleared),
                         duration = SnackbarDuration.Short
                     )
                 }
@@ -544,6 +578,21 @@ fun CallGuardScreen(
                                 onDeleteRule = viewModel::deletePrefix,
                                 modifier = Modifier.fillMaxSize()
                             )
+                        } else if (uiState.isCallRecordingsScreenOpen) {
+                            CallRecordingsScreen(
+                                recordings = uiState.callRecordings,
+                                playbackState = uiState.recordingPlaybackState,
+                                onBack = viewModel::closeCallRecordingsScreen,
+                                onTogglePlayPause = viewModel::togglePlayRecording,
+                                onSeekTo = viewModel::seekRecordingPlayback,
+                                onExportRecording = { recording ->
+                                    pendingExportRecording = recording
+                                    exportRecordingDocumentLauncher.launch(recording.fileName)
+                                },
+                                onDeleteRecording = viewModel::deleteCallRecording,
+                                onClearAllRecordings = viewModel::clearAllCallRecordings,
+                                modifier = Modifier.fillMaxSize()
+                            )
                         } else {
                             Box(
                                 modifier = Modifier.fillMaxSize(),
@@ -648,6 +697,34 @@ fun CallGuardScreen(
                                         onToggleHiddenPrivate = viewModel::setBlockHiddenPrivateCalls,
                                         onToggleSpoofedStirShaken = viewModel::setBlockSpoofedStirShakenCalls,
                                         onToggleSilenceOnly = viewModel::setSilenceOnlyMode
+                                    )
+                                }
+
+                                // Call Recording Settings & Saved Recordings Library Entry Card
+                                item(key = "call_recording_controls") {
+                                    CallRecordingControlCard(
+                                        settings = uiState.spamBlockerSettings,
+                                        hasRecordAudioPermission = uiState.hasRecordAudioPermission,
+                                        recordingCount = uiState.callRecordingCount,
+                                        totalSizeBytes = uiState.callRecordingsTotalBytes,
+                                        onToggleEnabled = { enable ->
+                                            if (enable && !uiState.hasRecordAudioPermission) {
+                                                pendingEnableRecordingAfterMicPrompt = true
+                                                recordAudioPermissionLauncher.launch(
+                                                    Manifest.permission.RECORD_AUDIO
+                                                )
+                                            } else {
+                                                viewModel.setCallRecordingEnabled(enable)
+                                            }
+                                        },
+                                        onToggleAutoRecord = viewModel::setAutoRecordCalls,
+                                        onRequestMicPermission = {
+                                            pendingEnableRecordingAfterMicPrompt = true
+                                            recordAudioPermissionLauncher.launch(
+                                                Manifest.permission.RECORD_AUDIO
+                                            )
+                                        },
+                                        onOpenRecordingsLibrary = viewModel::openCallRecordingsScreen
                                     )
                                 }
 
@@ -1057,409 +1134,6 @@ private fun ProtectionStatusBanner(
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun AddPrefixFormCard(
-    prefixInput: String,
-    labelInput: String,
-    prefixError: String?,
-    onPrefixChanged: (String) -> Unit,
-    onLabelChanged: (String) -> Unit,
-    onApplyQuickPrefix: (String, String) -> Unit,
-    onAddClick: () -> Unit
-) {
-    OutlinedCard(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        elevation = CardDefaults.outlinedCardElevation(defaultElevation = 1.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    text = stringResource(R.string.add_prefix_section_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = stringResource(R.string.add_prefix_section_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            // Number Prefix Input (JetBrains Mono)
-            OutlinedTextField(
-                value = prefixInput,
-                onValueChange = onPrefixChanged,
-                label = { Text(stringResource(R.string.label_prefix_input)) },
-                placeholder = {
-                    Text(
-                        text = stringResource(R.string.placeholder_prefix_input),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Rounded.Dialpad,
-                        contentDescription = null
-                    )
-                },
-                trailingIcon = {
-                    if (prefixInput.isNotEmpty()) {
-                        IconButton(onClick = { onPrefixChanged("") }) {
-                            Icon(
-                                imageVector = Icons.Outlined.Close,
-                                contentDescription = stringResource(R.string.cd_clear_input)
-                            )
-                        }
-                    }
-                },
-                isError = prefixError != null,
-                supportingText = prefixError?.let { errorMsg ->
-                    { Text(text = errorMsg) }
-                },
-                singleLine = true,
-                textStyle = PrefixMonoStyle.copy(color = MaterialTheme.colorScheme.onSurface),
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Phone,
-                    imeAction = ImeAction.Next
-                ),
-                shape = RoundedCornerShape(14.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("prefix_input")
-            )
-
-            // Quick-Fill Common Telemarketer Series Chips
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = stringResource(R.string.quick_examples_label),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                COMMON_SPAM_SERIES.forEach { preset ->
-                    SuggestionChip(
-                        onClick = { onApplyQuickPrefix(preset.prefix, preset.label) },
-                        label = {
-                            Text(
-                                text = preset.prefix,
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        },
-                        shape = RoundedCornerShape(10.dp),
-                        colors = SuggestionChipDefaults.suggestionChipColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
-                            labelColor = MaterialTheme.colorScheme.onSurfaceVariant
-                        ),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                        modifier = Modifier.testTag("quick_prefix_${preset.prefix}")
-                    )
-                }
-            }
-
-            // Optional Label / Reason Input
-            OutlinedTextField(
-                value = labelInput,
-                onValueChange = onLabelChanged,
-                label = { Text(stringResource(R.string.label_reason_input)) },
-                placeholder = {
-                    Text(
-                        text = stringResource(R.string.placeholder_reason_input),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Outlined.Label,
-                        contentDescription = null
-                    )
-                },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(
-                    capitalization = KeyboardCapitalization.Words,
-                    keyboardType = KeyboardType.Text,
-                    imeAction = ImeAction.Done
-                ),
-                keyboardActions = KeyboardActions(onDone = { onAddClick() }),
-                shape = RoundedCornerShape(14.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("label_input")
-            )
-
-            // Add Prefix CTA
-            Button(
-                onClick = onAddClick,
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 52.dp)
-                    .testTag("add_prefix_button")
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.AddModerator,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = stringResource(R.string.btn_add_prefix),
-                    style = MaterialTheme.typography.labelLarge
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun SavedPrefixesSectionHeader(
-    activeCount: Int,
-    totalCount: Int
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 4.dp, vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(
-            text = stringResource(R.string.saved_prefixes_header),
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onBackground
-        )
-        Text(
-            text = stringResource(R.string.stat_total_rules, totalCount) +
-                if (totalCount > 0) " • " + stringResource(R.string.stat_active_rules, activeCount) else "",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-@Composable
-private fun BlockedPrefixRow(
-    entity: BlockedPrefixEntity,
-    onToggleActive: (Boolean) -> Unit,
-    onDelete: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val badgeBgColor by animateColorAsState(
-        targetValue = if (entity.isActive) {
-            MaterialTheme.colorScheme.errorContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceVariant
-        },
-        label = "prefix_badge_bg"
-    )
-    val badgeIconColor by animateColorAsState(
-        targetValue = if (entity.isActive) {
-            MaterialTheme.colorScheme.error
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        },
-        label = "prefix_badge_icon"
-    )
-
-    val toggleDescription = stringResource(R.string.cd_toggle_prefix, entity.prefixString)
-
-    OutlinedCard(
-        modifier = modifier
-            .fillMaxWidth()
-            .testTag("prefix_card_${entity.id}"),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (entity.isActive) {
-                MaterialTheme.colorScheme.surface
-            } else {
-                MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
-            }
-        ),
-        border = BorderStroke(
-            width = 1.dp,
-            color = if (entity.isActive) {
-                MaterialTheme.colorScheme.outlineVariant
-            } else {
-                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
-            }
-        )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            // Leading Status Icon
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(badgeBgColor),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = if (entity.isActive) Icons.Rounded.Block else Icons.Outlined.Shield,
-                    contentDescription = null,
-                    tint = badgeIconColor,
-                    modifier = Modifier.size(22.dp)
-                )
-            }
-
-            // Prefix Number + Label + Active Pill
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = "${entity.prefixString}*",
-                        style = PrefixMonoStyle,
-                        color = if (entity.isActive) {
-                            MaterialTheme.colorScheme.onSurface
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = if (entity.isActive) {
-                            MaterialTheme.colorScheme.secondaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.surfaceVariant
-                        }
-                    ) {
-                        Text(
-                            text = if (entity.isActive) {
-                                stringResource(R.string.rule_status_blocking)
-                            } else {
-                                stringResource(R.string.rule_status_paused)
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (entity.isActive) {
-                                MaterialTheme.colorScheme.onSecondaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-                }
-
-                Text(
-                    text = entity.label.ifBlank { stringResource(R.string.default_rule_label) },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            // Active Toggle Switch
-            Switch(
-                checked = entity.isActive,
-                onCheckedChange = onToggleActive,
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = MaterialTheme.colorScheme.onSecondary,
-                    checkedTrackColor = MaterialTheme.colorScheme.secondary
-                ),
-                modifier = Modifier
-                    .minimumInteractiveComponentSize()
-                    .semantics { contentDescription = toggleDescription }
-                    .testTag("prefix_toggle_${entity.id}")
-            )
-
-            // Delete Action
-            IconButton(
-                onClick = onDelete,
-                modifier = Modifier
-                    .minimumInteractiveComponentSize()
-                    .testTag("prefix_delete_${entity.id}")
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.DeleteOutline,
-                    contentDescription = stringResource(R.string.cd_delete_prefix, entity.prefixString),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun EmptyPrefixesCard() {
-    OutlinedCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("empty_prefixes_state"),
-        shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-        ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(56.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Shield,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(28.dp)
-                )
-            }
-            Text(
-                text = stringResource(R.string.empty_state_title),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Text(
-                text = stringResource(R.string.empty_state_body),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-            )
         }
     }
 }

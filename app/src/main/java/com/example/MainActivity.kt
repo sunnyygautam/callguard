@@ -9,10 +9,12 @@ import androidx.activity.viewModels
 import com.example.data.backup.LocalBackupExporter
 import com.example.data.local.CallGuardDatabase
 import com.example.data.repository.BlockedCallLogRepository
+import com.example.data.repository.CallRecordingRepository
 import com.example.data.repository.DeviceCallLogRepository
 import com.example.data.repository.DeviceContactsRepository
 import com.example.data.repository.PrefixRepository
 import com.example.data.repository.SpamBlockerPreferencesRepository
+import com.example.telecom.CallAudioRecorder
 import com.example.telecom.CallNotificationManager
 import com.example.telecom.CallScreeningRoleHelper
 import com.example.ui.CallGuardScreen
@@ -24,10 +26,15 @@ class MainActivity : ComponentActivity() {
     private val viewModel: CallGuardViewModel by viewModels {
         val database = CallGuardDatabase.getInstance(applicationContext)
         val blockedCallLogRepository = BlockedCallLogRepository(database.blockedCallLogDao())
+        val callRecordingRepository = CallRecordingRepository(
+            context = applicationContext,
+            dao = database.callRecordingDao()
+        )
         val deviceContactsRepository = DeviceContactsRepository(applicationContext)
         CallGuardViewModel.Factory(
             prefixRepository = PrefixRepository(database.blockedPrefixDao()),
             callLogRepository = blockedCallLogRepository,
+            callRecordingRepository = callRecordingRepository,
             deviceCallLogRepository = DeviceCallLogRepository(applicationContext),
             deviceContactsRepository = deviceContactsRepository,
             spamPrefsRepository = SpamBlockerPreferencesRepository(applicationContext),
@@ -36,7 +43,8 @@ class MainActivity : ComponentActivity() {
                 blockedCallLogRepository = blockedCallLogRepository,
                 deviceContactsRepository = deviceContactsRepository
             ),
-            initialStatus = CallScreeningRoleHelper.getStatus(applicationContext)
+            initialStatus = CallScreeningRoleHelper.getStatus(applicationContext),
+            initialHasRecordAudioPermission = CallAudioRecorder.hasRecordAudioPermission(applicationContext)
         )
     }
 

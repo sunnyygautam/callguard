@@ -279,6 +279,50 @@
     <string name="blocked_list_empty_body">Add a specific phone number or a spam prefix above. CallGuard checks this Room database before allowing any incoming call.</string>
     <string name="blocked_list_empty_filter">No saved entries match your current filter.</string>
 
+    <!-- Call Recording (In-Call, Settings & Library) -->
+    <string name="incall_action_record">Record</string>
+    <string name="incall_action_stop_record">Stop Rec</string>
+    <string name="incall_recording_live_badge">REC %1$s</string>
+    <string name="incall_record_permission_denied">Microphone permission is required to record calls.</string>
+    <string name="notif_call_recording_status">Recording • %1$s</string>
+    <string name="call_recording_card_title">Call Recording</string>
+    <string name="call_recording_status_on">Enabled</string>
+    <string name="call_recording_status_off">Off</string>
+    <string name="call_recording_subtitle_on">Record calls manually from the call screen or automatically when connected.</string>
+    <string name="call_recording_subtitle_off">Enable to record incoming and outgoing calls locally as .m4a audio.</string>
+    <string name="call_recording_auto_title">Auto-Record All Calls</string>
+    <string name="call_recording_auto_desc">Automatically start recording whenever an incoming or outgoing call connects</string>
+    <string name="call_recording_permission_warning">Grant Microphone permission (RECORD_AUDIO) to record call audio locally.</string>
+    <string name="call_recording_btn_grant_mic">Allow Microphone</string>
+    <string name="call_recording_view_library_title">Saved Call Recordings</string>
+    <string name="call_recording_view_library_empty">No recordings saved yet</string>
+    <string name="call_recording_view_library_count">%1$d recordings • %2$s</string>
+    <string name="call_recording_open_library_cd">Open Call Recordings library</string>
+    <string name="call_recording_cd_master_switch">Enable or disable call recording</string>
+    <string name="call_recordings_screen_title">Call Recordings</string>
+    <string name="call_recordings_screen_subtitle">%1$d saved • %2$s</string>
+    <string name="call_recordings_search_placeholder">Search recordings by name or number…</string>
+    <string name="call_recordings_filter_all">All</string>
+    <string name="call_recordings_filter_incoming">Incoming</string>
+    <string name="call_recordings_filter_outgoing">Outgoing</string>
+    <string name="call_recordings_empty_title">No Call Recordings Yet</string>
+    <string name="call_recordings_empty_body">Tap Record during any active call—or turn on Auto-Record All Calls in Shield—to save local .m4a call recordings here.</string>
+    <string name="call_recordings_empty_filter">No recordings match your current search or filter.</string>
+    <string name="call_recordings_cd_play">Play recording from %1$s</string>
+    <string name="call_recordings_cd_pause">Pause recording from %1$s</string>
+    <string name="call_recordings_cd_export">Save recording %1$s to device storage</string>
+    <string name="call_recordings_cd_delete">Delete recording from %1$s</string>
+    <string name="call_recordings_dialog_clear_title">Clear All Call Recordings?</string>
+    <string name="call_recordings_dialog_clear_body">This will permanently delete all %1$d saved call recordings and their audio files from this device.</string>
+    <string name="call_recordings_dialog_confirm_clear">Delete All</string>
+    <string name="snackbar_call_recording_enabled">Call recording enabled</string>
+    <string name="snackbar_call_recording_disabled">Call recording disabled</string>
+    <string name="snackbar_mic_permission_required">Microphone permission is required for call recording</string>
+    <string name="snackbar_recording_deleted">Deleted recording for %1$s</string>
+    <string name="snackbar_recordings_cleared">All call recordings deleted</string>
+    <string name="snackbar_recording_exported">Saved recording %1$s</string>
+    <string name="snackbar_recording_export_failed">Could not save recording: %1$s</string>
+
     <!-- Feedback Snackbars -->
     <string name="snackbar_prefix_added">Blocked prefix %1$s added</string>
     <string name="snackbar_prefix_deleted">Removed prefix %1$s</string>

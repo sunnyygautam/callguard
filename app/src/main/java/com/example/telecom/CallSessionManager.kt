@@ -33,7 +33,10 @@ data class ActiveCallUiState(
     val isIncoming: Boolean,
     val connectTimeMillis: Long,
     val isMuted: Boolean = false,
-    val isSpeakerOn: Boolean = false
+    val isSpeakerOn: Boolean = false,
+    val isRecording: Boolean = false,
+    val recordingStartedAtMillis: Long = 0L,
+    val recordingError: String? = null
 )
 
 /**
@@ -87,6 +90,20 @@ object CallSessionManager {
         }
     }
 
+    fun onRecordingStateChanged(
+        isRecording: Boolean,
+        startedAtMillis: Long = 0L,
+        errorMessage: String? = null
+    ) {
+        _activeCallState.update { current ->
+            current?.copy(
+                isRecording = isRecording,
+                recordingStartedAtMillis = if (isRecording) startedAtMillis else 0L,
+                recordingError = errorMessage
+            )
+        }
+    }
+
     fun answerCall() {
         activeCall?.answer(VideoProfile.STATE_AUDIO_ONLY)
     }
@@ -132,6 +149,11 @@ object CallSessionManager {
         }
     }
 
+    fun toggleRecording() {
+        val service = serviceRef?.get() ?: return
+        service.toggleCallRecording()
+    }
+
     fun playDtmfDigit(digit: Char) {
         val call = activeCall ?: return
         call.playDtmfTone(digit)
@@ -163,7 +185,10 @@ object CallSessionManager {
             isIncoming = isIncoming,
             connectTimeMillis = connectTime,
             isMuted = previous?.isMuted ?: false,
-            isSpeakerOn = previous?.isSpeakerOn ?: false
+            isSpeakerOn = previous?.isSpeakerOn ?: false,
+            isRecording = previous?.isRecording ?: false,
+            recordingStartedAtMillis = previous?.recordingStartedAtMillis ?: 0L,
+            recordingError = previous?.recordingError
         )
     }
 

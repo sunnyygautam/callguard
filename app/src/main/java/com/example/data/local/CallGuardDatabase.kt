@@ -17,9 +17,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [
         BlockedPrefixEntity::class,
-        BlockedCallLogEntity::class
+        BlockedCallLogEntity::class,
+        CallRecordingEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class CallGuardDatabase : RoomDatabase() {
@@ -27,6 +28,8 @@ abstract class CallGuardDatabase : RoomDatabase() {
     abstract fun blockedPrefixDao(): BlockedPrefixDao
 
     abstract fun blockedCallLogDao(): BlockedCallLogDao
+
+    abstract fun callRecordingDao(): CallRecordingDao
 
     companion object {
         private const val DATABASE_NAME = "call_guard_prefixes.db"
@@ -82,6 +85,33 @@ abstract class CallGuardDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Preserves existing data when upgrading from v4 to v5 by creating the
+         * `call_recordings` table and its `recorded_at` index.
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `call_recordings` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `phone_number` TEXT NOT NULL,
+                        `caller_name` TEXT NOT NULL,
+                        `is_incoming` INTEGER NOT NULL,
+                        `file_path` TEXT NOT NULL,
+                        `file_name` TEXT NOT NULL,
+                        `duration_millis` INTEGER NOT NULL,
+                        `file_size_bytes` INTEGER NOT NULL,
+                        `recorded_at` INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_call_recordings_recorded_at` ON `call_recordings` (`recorded_at`)"
+                )
+            }
+        }
+
         @Volatile
         private var instance: CallGuardDatabase? = null
 
@@ -92,7 +122,7 @@ abstract class CallGuardDatabase : RoomDatabase() {
                     CallGuardDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build()
                     .also { db ->
                         instance = db

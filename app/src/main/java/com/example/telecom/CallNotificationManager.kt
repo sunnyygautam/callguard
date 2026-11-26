@@ -122,7 +122,7 @@ object CallNotificationManager {
         )
 
         val callerTitle = callState.callerDisplayName ?: callState.phoneNumber
-        val statusText = when (callState.state) {
+        val baseStatusText = when (callState.state) {
             CallLifecycleState.RINGING -> context.getString(R.string.incall_state_ringing)
             CallLifecycleState.DIALING -> context.getString(R.string.incall_state_dialing)
             CallLifecycleState.CONNECTING -> context.getString(R.string.incall_state_connecting)
@@ -130,6 +130,11 @@ object CallNotificationManager {
             CallLifecycleState.HOLDING -> context.getString(R.string.incall_state_holding)
             CallLifecycleState.DISCONNECTING -> context.getString(R.string.incall_state_disconnecting)
             CallLifecycleState.DISCONNECTED -> context.getString(R.string.incall_state_disconnected)
+        }
+        val statusText = if (callState.isRecording) {
+            context.getString(R.string.notif_call_recording_status, baseStatusText)
+        } else {
+            baseStatusText
         }
 
         val builder = NotificationCompat.Builder(context, CHANNEL_CALLS)

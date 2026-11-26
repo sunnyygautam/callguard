@@ -1,11 +1,14 @@
 package com.example.ui.incall
 
+import android.Manifest
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -31,12 +34,14 @@ import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.outlined.Dialpad
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.CallEnd
+import androidx.compose.material.icons.rounded.FiberManualRecord
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.MicOff
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Security
+import androidx.compose.material.icons.rounded.StopCircle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -54,6 +59,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -64,6 +70,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
 import com.example.telecom.ActiveCallUiState
+import com.example.telecom.CallAudioRecorder
 import com.example.telecom.CallLifecycleState
 import com.example.telecom.CallSessionManager
 import com.example.ui.theme.BannerNavyDeep
@@ -109,6 +116,20 @@ class InCallActivity : ComponentActivity() {
                     }
                 }
 
+                val context = LocalContext.current
+                val recordAudioPermissionLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.RequestPermission()
+                ) { granted ->
+                    if (granted) {
+                        CallSessionManager.toggleRecording()
+                    } else {
+                        CallSessionManager.onRecordingStateChanged(
+                            isRecording = false,
+                            errorMessage = context.getString(R.string.incall_record_permission_denied)
+                        )
+                    }
+                }
+
                 activeCall?.let { callUiState ->
                     InCallScreen(
                         callState = callUiState,
@@ -117,6 +138,13 @@ class InCallActivity : ComponentActivity() {
                         onToggleMute = CallSessionManager::toggleMute,
                         onToggleSpeaker = CallSessionManager::toggleSpeaker,
                         onToggleHold = CallSessionManager::toggleHold,
+                        onToggleRecord = {
+                            if (callUiState.isRecording || CallAudioRecorder.hasRecordAudioPermission(context)) {
+                                CallSessionManager.toggleRecording()
+                            } else {
+                                recordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            }
+                        },
                         onPressDtmf = CallSessionManager::playDtmfDigit
                     )
                 }
@@ -147,10 +175,14 @@ private fun InCallScreen(
     onToggleMute: () -> Unit,
     onToggleSpeaker: () -> Unit,
     onToggleHold: () -> Unit,
+    onToggleRecord: () -> Unit,
     onPressDtmf: (Char) -> Unit
 ) {
     var showKeypad by remember { mutableStateOf(false) }
     var elapsedSeconds by remember(callState.connectTimeMillis, callState.state) {
+        mutableLongStateOf(0L)
+    }
+    var recordingElapsedSeconds by remember(callState.isRecording, callState.recordingStartedAtMillis) {
         mutableLongStateOf(0L)
     }
 
@@ -162,6 +194,19 @@ private fun InCallScreen(
                         .coerceAtLeast(0L)
                 delay(1_000L)
             }
+        }
+    }
+
+    LaunchedEffect(callState.isRecording, callState.recordingStartedAtMillis) {
+        if (callState.isRecording && callState.recordingStartedAtMillis > 0L) {
+            while (true) {
+                recordingElapsedSeconds =
+                    ((System.currentTimeMillis() - callState.recordingStartedAtMillis) / 1000L)
+                        .coerceAtLeast(0L)
+                delay(1_000L)
+            }
+        } else {
+            recordingElapsedSeconds = 0L
         }
     }
 
@@ -278,6 +323,51 @@ private fun InCallScreen(
                     color = ShieldActiveEmerald,
                     modifier = Modifier.testTag("incall_status_text")
                 )
+
+                // Live Call Recording Pill Indicator
+                AnimatedVisibility(visible = callState.isRecording) {
+                    Surface(
+                        shape = RoundedCornerShape(999.dp),
+                        color = CrimsonError.copy(alpha = 0.22f),
+                        border = BorderStroke(1.dp, CrimsonError.copy(alpha = 0.70f)),
+                        modifier = Modifier.testTag("incall_recording_badge")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.FiberManualRecord,
+                                contentDescription = null,
+                                tint = CrimsonError,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = stringResource(
+                                    R.string.incall_recording_live_badge,
+                                    formatElapsedDuration(recordingElapsedSeconds)
+                                ),
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontWeight = FontWeight.SemiBold
+                                ),
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+
+                // Recording Error Notice (e.g., mic denied or unavailable)
+                val recError = callState.recordingError
+                if (!recError.isNullOrBlank() && !callState.isRecording) {
+                    Text(
+                        text = recError,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFFFFB4AB),
+                        textAlign = TextAlign.Center
+                    )
+                }
             }
 
             // Optional In-Call DTMF Keypad
@@ -385,6 +475,23 @@ private fun InCallScreen(
                             onClick = onToggleHold,
                             testTag = "incall_hold_button"
                         )
+                        InCallToggleControl(
+                            icon = if (callState.isRecording) {
+                                Icons.Rounded.StopCircle
+                            } else {
+                                Icons.Rounded.FiberManualRecord
+                            },
+                            label = if (callState.isRecording) {
+                                stringResource(R.string.incall_action_stop_record)
+                            } else {
+                                stringResource(R.string.incall_action_record)
+                            },
+                            isActive = callState.isRecording,
+                            activeContainerColor = CrimsonError,
+                            activeIconTint = Color.White,
+                            onClick = onToggleRecord,
+                            testTag = "incall_record_button"
+                        )
                     }
 
                     CircularCallActionButton(
@@ -442,7 +549,9 @@ private fun InCallToggleControl(
     label: String,
     isActive: Boolean,
     onClick: () -> Unit,
-    testTag: String
+    testTag: String,
+    activeContainerColor: Color = Color.White,
+    activeIconTint: Color = BannerNavyDeep
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -450,10 +559,10 @@ private fun InCallToggleControl(
     ) {
         Box(
             modifier = Modifier
-                .size(56.dp)
+                .size(54.dp)
                 .clip(CircleShape)
                 .background(
-                    if (isActive) Color.White else Color.White.copy(alpha = 0.14f)
+                    if (isActive) activeContainerColor else Color.White.copy(alpha = 0.14f)
                 )
                 .clickable(onClick = onClick)
                 .testTag(testTag),
@@ -462,7 +571,7 @@ private fun InCallToggleControl(
             Icon(
                 imageVector = icon,
                 contentDescription = label,
-                tint = if (isActive) BannerNavyDeep else Color.White,
+                tint = if (isActive) activeIconTint else Color.White,
                 modifier = Modifier.size(24.dp)
             )
         }

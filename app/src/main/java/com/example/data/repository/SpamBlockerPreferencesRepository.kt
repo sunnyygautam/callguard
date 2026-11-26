@@ -27,7 +27,9 @@ data class SpamBlockerSettings(
     val silenceOnlyMode: Boolean = false,
     val ringtoneEnabled: Boolean = true,
     val vibrationEnabled: Boolean = true,
-    val notificationsEnabled: Boolean = true
+    val notificationsEnabled: Boolean = true,
+    val callRecordingEnabled: Boolean = false,
+    val autoRecordCalls: Boolean = false
 )
 
 /**
@@ -47,6 +49,8 @@ class SpamBlockerPreferencesRepository(
         val RINGTONE_ENABLED = booleanPreferencesKey("ringtone_enabled")
         val VIBRATION_ENABLED = booleanPreferencesKey("vibration_enabled")
         val NOTIFICATIONS_ENABLED = booleanPreferencesKey("notifications_enabled")
+        val CALL_RECORDING_ENABLED = booleanPreferencesKey("call_recording_enabled")
+        val AUTO_RECORD_CALLS = booleanPreferencesKey("auto_record_calls")
     }
 
     val settings: Flow<SpamBlockerSettings> = context.spamBlockerDataStore.data.map { prefs ->
@@ -59,7 +63,9 @@ class SpamBlockerPreferencesRepository(
             silenceOnlyMode = prefs[Keys.SILENCE_ONLY_MODE] ?: false,
             ringtoneEnabled = prefs[Keys.RINGTONE_ENABLED] ?: true,
             vibrationEnabled = prefs[Keys.VIBRATION_ENABLED] ?: true,
-            notificationsEnabled = prefs[Keys.NOTIFICATIONS_ENABLED] ?: true
+            notificationsEnabled = prefs[Keys.NOTIFICATIONS_ENABLED] ?: true,
+            callRecordingEnabled = prefs[Keys.CALL_RECORDING_ENABLED] ?: false,
+            autoRecordCalls = prefs[Keys.AUTO_RECORD_CALLS] ?: false
         )
     }
 
@@ -99,5 +105,23 @@ class SpamBlockerPreferencesRepository(
 
     suspend fun setNotificationsEnabled(enabled: Boolean) {
         context.spamBlockerDataStore.edit { it[Keys.NOTIFICATIONS_ENABLED] = enabled }
+    }
+
+    suspend fun setCallRecordingEnabled(enabled: Boolean) {
+        context.spamBlockerDataStore.edit { prefs ->
+            prefs[Keys.CALL_RECORDING_ENABLED] = enabled
+            if (!enabled) {
+                prefs[Keys.AUTO_RECORD_CALLS] = false
+            }
+        }
+    }
+
+    suspend fun setAutoRecordCalls(enabled: Boolean) {
+        context.spamBlockerDataStore.edit { prefs ->
+            prefs[Keys.AUTO_RECORD_CALLS] = enabled
+            if (enabled) {
+                prefs[Keys.CALL_RECORDING_ENABLED] = true
+            }
+        }
     }
 }

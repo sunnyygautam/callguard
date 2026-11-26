@@ -28,11 +28,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Label
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DeleteOutline
-import androidx.compose.material.icons.outlined.Label
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.rounded.AddModerator
 import androidx.compose.material.icons.rounded.Block
@@ -610,7 +610,7 @@ private fun AddBlockedEntryCard(
                 placeholder = { Text(stringResource(R.string.placeholder_reason_input)) },
                 leadingIcon = {
                     Icon(
-                        imageVector = Icons.Outlined.Label,
+                        imageVector = Icons.AutoMirrored.Outlined.Label,
                         contentDescription = null
                     )
                 },
