@@ -79,8 +79,9 @@ private val KEYPAD_ROWS = listOf(
 )
 
 /**
- * Keypad tab displaying the smart **Suggested** section on top (recent callers & live T9/digit
- * contact matches) followed by the tactile numeric dialpad and quick call/block actions.
+ * Keypad tab displaying the tactile numeric dialpad ("Enter phone number" bar, keys, and
+ * call/block actions) on top, followed by the smart **Suggested** section (recent callers &
+ * live T9/digit contact matches).
  */
 @Composable
 internal fun KeypadScreen(
@@ -198,17 +199,7 @@ internal fun KeypadScreen(
                 }
             }
 
-            // Suggested Section on Top
-            item(key = "keypad_suggested_section") {
-                SuggestedCallersCard(
-                    dialerInput = uiState.dialerInput,
-                    suggestions = suggestions,
-                    onSelectSuggestion = { onDialerNumberSelected(it.phoneNumber) },
-                    onCallSuggestion = { initiateCall(it.phoneNumber) }
-                )
-            }
-
-            // Tactile Numeric Keypad & Call Controls
+            // Tactile Numeric Keypad & Call Controls on Top
             item(key = "keypad_dialer_card") {
                 NumericKeypadCard(
                     dialerInput = uiState.dialerInput,
@@ -221,6 +212,16 @@ internal fun KeypadScreen(
                             onQuickBlockNumber(uiState.dialerInput, null)
                         }
                     }
+                )
+            }
+
+            // Suggested Section Below Keypad
+            item(key = "keypad_suggested_section") {
+                SuggestedCallersCard(
+                    dialerInput = uiState.dialerInput,
+                    suggestions = suggestions,
+                    onSelectSuggestion = { onDialerNumberSelected(it.phoneNumber) },
+                    onCallSuggestion = { initiateCall(it.phoneNumber) }
                 )
             }
 
