@@ -470,6 +470,7 @@ internal fun HomeContactsScreen(
                     ) { contact ->
                         DeviceContactRow(
                             contact = contact,
+                            searchQuery = unifiedSearchQuery,
                             onCall = { initiateCall(contact.phoneNumber) },
                             onBlockPrefix = {
                                 onQuickBlockNumber(contact.phoneNumber, contact.displayName)
@@ -549,6 +550,7 @@ internal fun HomeContactsScreen(
                     }
                     SwipeableCallLogItem(
                         entry = entry,
+                        searchQuery = unifiedSearchQuery,
                         mlAnalysis = mlScore,
                         callerCategory = callerCategory,
                         onInspectMlScore = {
@@ -767,11 +769,32 @@ private fun NumberSearchResultCard(
 @Composable
 private fun DeviceContactRow(
     contact: DeviceContactEntry,
+    searchQuery: String,
     onCall: () -> Unit,
     onBlockPrefix: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val initials = remember(contact.displayName) { extractInitials(contact.displayName) }
+    val highlightColor = MaterialTheme.colorScheme.primary
+    val highlightBg = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
+    val highlightedName = remember(contact.displayName, searchQuery, highlightColor, highlightBg) {
+        val match = SubstringSearchEngine.findTextMatches(contact.displayName, searchQuery)
+        SubstringSearchEngine.buildHighlightedText(
+            text = contact.displayName,
+            ranges = match.ranges,
+            highlightColor = highlightColor,
+            highlightBackground = highlightBg
+        )
+    }
+    val highlightedPhone = remember(contact.phoneNumber, searchQuery, highlightColor, highlightBg) {
+        val match = SubstringSearchEngine.findPhoneNumberMatch(contact.phoneNumber, searchQuery)
+        SubstringSearchEngine.buildHighlightedText(
+            text = contact.phoneNumber,
+            ranges = match.ranges,
+            highlightColor = highlightColor,
+            highlightBackground = highlightBg
+        )
+    }
 
     OutlinedCard(
         modifier = modifier
@@ -807,14 +830,14 @@ private fun DeviceContactRow(
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 Text(
-                    text = contact.displayName,
+                    text = highlightedName,
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = contact.phoneNumber,
+                    text = highlightedPhone,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -861,6 +884,7 @@ private fun DeviceContactRow(
 @Composable
 private fun SwipeableCallLogItem(
     entry: DeviceCallLogEntry,
+    searchQuery: String,
     mlAnalysis: SpamMlAnalysisResult?,
     callerCategory: CallerCategoryResult?,
     onInspectMlScore: () -> Unit,
@@ -967,6 +991,7 @@ private fun SwipeableCallLogItem(
     ) {
         DeviceCallLogRow(
             entry = entry,
+            searchQuery = searchQuery,
             mlAnalysis = mlAnalysis,
             callerCategory = callerCategory,
             onInspectMlScore = onInspectMlScore,
@@ -979,6 +1004,7 @@ private fun SwipeableCallLogItem(
 @Composable
 private fun DeviceCallLogRow(
     entry: DeviceCallLogEntry,
+    searchQuery: String,
     mlAnalysis: SpamMlAnalysisResult?,
     callerCategory: CallerCategoryResult?,
     onInspectMlScore: () -> Unit,
@@ -1018,6 +1044,38 @@ private fun DeviceCallLogRow(
     val displayTitle = entry.cachedName ?: entry.number.ifBlank {
         stringResource(R.string.call_unknown_number)
     }
+    val highlightColor = MaterialTheme.colorScheme.primary
+    val highlightBg = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
+    val highlightedTitle = remember(displayTitle, entry.cachedName, searchQuery, highlightColor, highlightBg) {
+        if (searchQuery.isBlank()) {
+            SubstringSearchEngine.buildHighlightedText(displayTitle, emptyList(), highlightColor, highlightBg)
+        } else {
+            val match = if (entry.cachedName != null) {
+                SubstringSearchEngine.findTextMatches(displayTitle, searchQuery)
+            } else {
+                SubstringSearchEngine.findPhoneNumberMatch(displayTitle, searchQuery)
+            }
+            SubstringSearchEngine.buildHighlightedText(
+                text = displayTitle,
+                ranges = match.ranges,
+                highlightColor = highlightColor,
+                highlightBackground = highlightBg
+            )
+        }
+    }
+    val highlightedSubNumber = remember(entry.number, searchQuery, highlightColor, highlightBg) {
+        if (searchQuery.isBlank() || entry.number.isBlank()) {
+            SubstringSearchEngine.buildHighlightedText(entry.number, emptyList(), highlightColor, highlightBg)
+        } else {
+            val match = SubstringSearchEngine.findPhoneNumberMatch(entry.number, searchQuery)
+            SubstringSearchEngine.buildHighlightedText(
+                text = entry.number,
+                ranges = match.ranges,
+                highlightColor = highlightColor,
+                highlightBackground = highlightBg
+            )
+        }
+    }
 
     OutlinedCard(
         modifier = modifier
@@ -1054,7 +1112,7 @@ private fun DeviceCallLogRow(
                 verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Text(
-                    text = displayTitle,
+                    text = highlightedTitle,
                     style = if (entry.cachedName == null) PrefixMonoStyle else MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
@@ -1063,7 +1121,7 @@ private fun DeviceCallLogRow(
 
                 if (entry.cachedName != null && entry.number.isNotBlank()) {
                     Text(
-                        text = entry.number,
+                        text = highlightedSubNumber,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -1378,8 +1436,9 @@ private data class CallTypeVisual<A, B, C, D>(
 )
 
 /**
- * Pure filter matching device call logs by call-type filter and case-insensitive name
- * or raw/normalized phone digit query.
+ * Pure filter matching device call logs by call-type filter and anywhere-substring matching
+ * (using [SubstringSearchEngine] with `indexOf` and `Regex.find`) across caller names and
+ * formatted or normalized phone numbers.
  */
 internal fun filterDeviceCallLogs(
     logs: List<DeviceCallLogEntry>,
@@ -1398,13 +1457,12 @@ internal fun filterDeviceCallLogs(
     val trimmedQuery = searchQuery.trim()
     if (trimmedQuery.isEmpty()) return typeFiltered
 
-    val normalizedQuery = PhoneNumberMatcher.normalize(trimmedQuery)
     return typeFiltered.filter { entry ->
-        val matchesName = entry.cachedName?.contains(trimmedQuery, ignoreCase = true) == true
-        val matchesRawNumber = entry.number.contains(trimmedQuery, ignoreCase = true)
-        val matchesNormalizedDigits = normalizedQuery.isNotEmpty() &&
-            PhoneNumberMatcher.normalize(entry.number).contains(normalizedQuery.removePrefix("+"))
-        matchesName || matchesRawNumber || matchesNormalizedDigits
+        val matchesName = entry.cachedName?.let { name ->
+            SubstringSearchEngine.findTextMatches(name, trimmedQuery).isMatch
+        } == true
+        val matchesNumber = SubstringSearchEngine.findPhoneNumberMatch(entry.number, trimmedQuery).isMatch
+        matchesName || matchesNumber
     }
 }
 

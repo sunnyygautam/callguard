@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.R
 import com.example.data.backup.BackupExportResult
+import com.example.data.backup.BackupRestoreResult
 import com.example.data.backup.LocalBackupExporter
 import com.example.data.local.BlockedCallLogEntity
 import com.example.data.local.BlockedMatchType
@@ -112,7 +113,9 @@ data class CallGuardUiState(
     val callHistoryMlScores: Map<Long, SpamMlAnalysisResult> = emptyMap(),
     val callHistoryCategories: Map<Long, CallerCategoryResult> = emptyMap(),
     val isExportingBackup: Boolean = false,
-    val lastBackupResult: BackupExportResult.Success? = null
+    val lastBackupResult: BackupExportResult.Success? = null,
+    val isRestoringBackup: Boolean = false,
+    val lastRestoreResult: BackupRestoreResult.Success? = null
 ) {
     val activePrefixCount: Int
         get() = prefixes.count { it.isActive }
@@ -157,6 +160,8 @@ sealed interface CallGuardEvent {
     data object RecordingsCleared : CallGuardEvent
     data class BackupExported(val result: BackupExportResult.Success) : CallGuardEvent
     data class BackupExportFailed(val reason: String) : CallGuardEvent
+    data class BackupRestored(val result: BackupRestoreResult.Success) : CallGuardEvent
+    data class BackupRestoreFailed(val reason: String) : CallGuardEvent
     data object HistoryCleared : CallGuardEvent
 }
 
@@ -206,7 +211,9 @@ class CallGuardViewModel(
         val hasNotificationPermission: Boolean = true,
         val isLoadingCallHistory: Boolean = false,
         val isExportingBackup: Boolean = false,
-        val lastBackupResult: BackupExportResult.Success? = null
+        val lastBackupResult: BackupExportResult.Success? = null,
+        val isRestoringBackup: Boolean = false,
+        val lastRestoreResult: BackupRestoreResult.Success? = null
     )
 
     private data class CoreShieldSnapshot(
@@ -357,7 +364,9 @@ class CallGuardViewModel(
             callHistoryMlScores = mlScores,
             callHistoryCategories = callerCategories,
             isExportingBackup = phone.isExportingBackup,
-            lastBackupResult = phone.lastBackupResult
+            lastBackupResult = phone.lastBackupResult,
+            isRestoringBackup = phone.isRestoringBackup,
+            lastRestoreResult = phone.lastRestoreResult
         )
     }.stateIn(
         scope = viewModelScope,
@@ -985,21 +994,25 @@ class CallGuardViewModel(
         localBackupExporter.createSuggestedFileName()
 
     /**
-     * Exports blocked call history and/or device contacts to the user-selected Storage Access
-     * Framework JSON document [destinationUri].
+     * Exports blocked numbers/prefixes, call settings, blocked call history, and/or device contacts
+     * to the user-selected Storage Access Framework JSON document [destinationUri].
      */
     fun exportBackupToUri(
         destinationUri: Uri,
+        includeBlockedNumbers: Boolean = true,
+        includeCallSettings: Boolean = true,
         includeBlockedHistory: Boolean = true,
         includeContacts: Boolean = true
     ) {
-        if (phoneUiState.value.isExportingBackup) return
+        if (phoneUiState.value.isExportingBackup || phoneUiState.value.isRestoringBackup) return
 
         viewModelScope.launch {
             phoneUiState.update { it.copy(isExportingBackup = true) }
             when (
                 val result = localBackupExporter.exportToUri(
                     destinationUri = destinationUri,
+                    includeBlockedNumbers = includeBlockedNumbers,
+                    includeCallSettings = includeCallSettings,
                     includeBlockedHistory = includeBlockedHistory,
                     includeContacts = includeContacts
                 )
@@ -1016,6 +1029,33 @@ class CallGuardViewModel(
                 is BackupExportResult.Failure -> {
                     phoneUiState.update { it.copy(isExportingBackup = false) }
                     _events.emit(CallGuardEvent.BackupExportFailed(result.reason))
+                }
+            }
+        }
+    }
+
+    /**
+     * Restores blocked phone numbers/prefixes, call & shield settings, and blocked call history
+     * from a previously exported CallGuard JSON backup document [sourceUri].
+     */
+    fun restoreBackupFromUri(sourceUri: Uri) {
+        if (phoneUiState.value.isRestoringBackup || phoneUiState.value.isExportingBackup) return
+
+        viewModelScope.launch {
+            phoneUiState.update { it.copy(isRestoringBackup = true) }
+            when (val result = localBackupExporter.restoreFromUri(sourceUri)) {
+                is BackupRestoreResult.Success -> {
+                    phoneUiState.update {
+                        it.copy(
+                            isRestoringBackup = false,
+                            lastRestoreResult = result
+                        )
+                    }
+                    _events.emit(CallGuardEvent.BackupRestored(result))
+                }
+                is BackupRestoreResult.Failure -> {
+                    phoneUiState.update { it.copy(isRestoringBackup = false) }
+                    _events.emit(CallGuardEvent.BackupRestoreFailed(result.reason))
                 }
             }
         }

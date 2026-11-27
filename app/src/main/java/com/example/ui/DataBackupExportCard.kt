@@ -16,11 +16,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.Contacts
 import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.FileDownload
+import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -45,29 +48,42 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.data.backup.BackupExportResult
+import com.example.data.backup.BackupRestoreResult
 import com.example.ui.theme.ShieldActiveEmerald
 import com.example.ui.theme.ShieldWarningAmber
 
 /**
- * Material 3 card allowing users to export their blocked call history and device contact list
- * into a local `.json` backup file using Android's zero-permission Storage Access Framework.
+ * Material 3 card allowing users to back up and restore their blocked phone numbers/prefixes,
+ * call & shield settings, blocked call history, and device contacts using a local `.json` file
+ * via Android's zero-permission Storage Access Framework.
  */
 @Composable
 internal fun DataBackupExportCard(
+    blockedNumberCount: Int,
     blockedCallCount: Int,
     contactCount: Int,
     hasContactsPermission: Boolean,
+    includeBlockedNumbers: Boolean,
+    includeCallSettings: Boolean,
     includeBlockedHistory: Boolean,
     includeContacts: Boolean,
     isExporting: Boolean,
+    isRestoring: Boolean,
     lastBackupResult: BackupExportResult.Success?,
+    lastRestoreResult: BackupRestoreResult.Success?,
+    onToggleIncludeBlockedNumbers: (Boolean) -> Unit,
+    onToggleIncludeCallSettings: (Boolean) -> Unit,
     onToggleIncludeBlockedHistory: (Boolean) -> Unit,
     onToggleIncludeContacts: (Boolean) -> Unit,
     onRequestContactsPermission: () -> Unit,
     onExportClick: () -> Unit,
+    onRestoreClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val canExport = (includeBlockedHistory || includeContacts) && !isExporting
+    val hasAnyScopeSelected =
+        includeBlockedNumbers || includeCallSettings || includeBlockedHistory || includeContacts
+    val canExport = hasAnyScopeSelected && !isExporting && !isRestoring
+    val canRestore = !isExporting && !isRestoring
 
     OutlinedCard(
         modifier = modifier
@@ -110,12 +126,12 @@ internal fun DataBackupExportCard(
                     }
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(
-                            text = stringResource(R.string.backup_card_title),
+                            text = stringResource(R.string.backup_card_title_v2),
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = stringResource(R.string.backup_card_subtitle),
+                            text = stringResource(R.string.backup_card_subtitle_v2),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -140,6 +156,24 @@ internal fun DataBackupExportCard(
 
             // Export scope selectors
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                BackupScopeOptionRow(
+                    icon = Icons.Outlined.Block,
+                    title = stringResource(R.string.backup_option_blocked_numbers),
+                    subtitle = stringResource(R.string.backup_count_blocked_numbers, blockedNumberCount),
+                    checked = includeBlockedNumbers,
+                    onCheckedChange = onToggleIncludeBlockedNumbers,
+                    testTag = "backup_checkbox_blocked_numbers"
+                )
+
+                BackupScopeOptionRow(
+                    icon = Icons.Outlined.Tune,
+                    title = stringResource(R.string.backup_option_call_settings),
+                    subtitle = stringResource(R.string.backup_desc_call_settings),
+                    checked = includeCallSettings,
+                    onCheckedChange = onToggleIncludeCallSettings,
+                    testTag = "backup_checkbox_call_settings"
+                )
+
                 BackupScopeOptionRow(
                     icon = Icons.Outlined.History,
                     title = stringResource(R.string.backup_option_blocked_calls),
@@ -202,7 +236,7 @@ internal fun DataBackupExportCard(
                 }
             }
 
-            if (!includeBlockedHistory && !includeContacts) {
+            if (!hasAnyScopeSelected) {
                 Text(
                     text = stringResource(R.string.backup_select_at_least_one),
                     style = MaterialTheme.typography.bodySmall,
@@ -210,38 +244,85 @@ internal fun DataBackupExportCard(
                 )
             }
 
-            // Primary Export JSON Button
-            Button(
-                onClick = onExportClick,
-                enabled = canExport,
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 50.dp)
-                    .testTag("export_backup_button")
+            // Primary Export & Restore JSON Buttons
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                if (isExporting) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = stringResource(R.string.backup_btn_exporting),
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Rounded.Download,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = stringResource(R.string.backup_btn_export),
-                        style = MaterialTheme.typography.labelLarge
-                    )
+                Button(
+                    onClick = onExportClick,
+                    enabled = canExport,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 50.dp)
+                        .testTag("export_backup_button")
+                ) {
+                    if (isExporting) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = stringResource(R.string.backup_btn_exporting),
+                            style = MaterialTheme.typography.labelLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Rounded.Download,
+                            contentDescription = null,
+                            modifier = Modifier.size(19.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = stringResource(R.string.backup_btn_export),
+                            style = MaterialTheme.typography.labelLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                OutlinedButton(
+                    onClick = onRestoreClick,
+                    enabled = canRestore,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 50.dp)
+                        .testTag("restore_backup_button")
+                ) {
+                    if (isRestoring) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = stringResource(R.string.backup_btn_restoring),
+                            style = MaterialTheme.typography.labelLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Rounded.UploadFile,
+                            contentDescription = null,
+                            modifier = Modifier.size(19.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = stringResource(R.string.backup_btn_restore),
+                            style = MaterialTheme.typography.labelLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
 
@@ -270,10 +351,55 @@ internal fun DataBackupExportCard(
                         )
                         Text(
                             text = stringResource(
-                                R.string.backup_last_saved,
+                                R.string.backup_last_saved_v2,
                                 lastBackupResult.fileName,
+                                lastBackupResult.blockedNumberCount,
                                 lastBackupResult.blockedCallCount,
                                 lastBackupResult.contactCount
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+
+            // Last successful restore confirmation strip
+            if (lastRestoreResult != null) {
+                val settingsSuffix = if (lastRestoreResult.restoredCallSettings) {
+                    stringResource(R.string.backup_restored_settings_suffix)
+                } else {
+                    ""
+                }
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("backup_last_restored_banner"),
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.CheckCircle,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = stringResource(
+                                R.string.backup_last_restored,
+                                lastRestoreResult.fileName,
+                                lastRestoreResult.restoredBlockedNumbers,
+                                settingsSuffix
                             ),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface,

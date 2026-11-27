@@ -27,22 +27,26 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: CallGuardViewModel by viewModels {
         val database = CallGuardDatabase.getInstance(applicationContext)
+        val prefixRepository = PrefixRepository(database.blockedPrefixDao())
         val blockedCallLogRepository = BlockedCallLogRepository(database.blockedCallLogDao())
         val callRecordingRepository = CallRecordingRepository(
             context = applicationContext,
             dao = database.callRecordingDao()
         )
         val deviceContactsRepository = DeviceContactsRepository(applicationContext)
+        val spamPrefsRepository = SpamBlockerPreferencesRepository(applicationContext)
         CallGuardViewModel.Factory(
-            prefixRepository = PrefixRepository(database.blockedPrefixDao()),
+            prefixRepository = prefixRepository,
             callLogRepository = blockedCallLogRepository,
             callRecordingRepository = callRecordingRepository,
             onDeviceCallSummarizer = OnDeviceCallSummarizer(applicationContext),
             deviceCallLogRepository = DeviceCallLogRepository(applicationContext),
             deviceContactsRepository = deviceContactsRepository,
-            spamPrefsRepository = SpamBlockerPreferencesRepository(applicationContext),
+            spamPrefsRepository = spamPrefsRepository,
             localBackupExporter = LocalBackupExporter(
                 context = applicationContext,
+                prefixRepository = prefixRepository,
+                spamPrefsRepository = spamPrefsRepository,
                 blockedCallLogRepository = blockedCallLogRepository,
                 deviceContactsRepository = deviceContactsRepository
             ),

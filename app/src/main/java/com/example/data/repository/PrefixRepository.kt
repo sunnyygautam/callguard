@@ -93,4 +93,64 @@ class PrefixRepository(
     suspend fun getActivePrefixes(): List<BlockedPrefixEntity> {
         return blockedPrefixDao.getActivePrefixes()
     }
+
+    /**
+     * Returns a full snapshot of all saved blocked numbers and prefix rules for JSON backup.
+     */
+    suspend fun getAllPrefixesSnapshot(): List<BlockedPrefixEntity> {
+        return blockedPrefixDao.getAllPrefixesSnapshot()
+    }
+
+    /**
+     * Restores blocked phone numbers and prefix rules parsed from a local JSON backup.
+     * Existing rules with the same normalized number/prefix are updated in place while
+     * new rules are inserted cleanly. Returns the number of valid rules restored.
+     */
+    suspend fun restoreBlockedNumbers(rules: List<BlockedPrefixEntity>): Int {
+        var restoredCount = 0
+        for (rule in rules) {
+            val rawCandidate = rule.normalizedPrefix.ifBlank { rule.prefixString }
+            val normalized = PhoneNumberMatcher.normalize(rawCandidate)
+            val safeMatchType = if (rule.matchType == BlockedMatchType.EXACT_NUMBER) {
+                BlockedMatchType.EXACT_NUMBER
+            } else {
+                BlockedMatchType.PREFIX
+            }
+            val isValid = if (safeMatchType == BlockedMatchType.EXACT_NUMBER) {
+                PhoneNumberMatcher.isValidExactNumber(normalized)
+            } else {
+                PhoneNumberMatcher.isValidPrefix(normalized)
+            }
+            if (!isValid) continue
+
+            val existing = blockedPrefixDao.findByNormalizedPrefix(normalized)
+            if (existing != null) {
+                blockedPrefixDao.updatePrefix(
+                    existing.copy(
+                        prefixString = normalized,
+                        label = rule.label.trim().take(40),
+                        isActive = rule.isActive,
+                        matchType = safeMatchType
+                    )
+                )
+                restoredCount++
+            } else {
+                val insertedId = blockedPrefixDao.insertPrefix(
+                    BlockedPrefixEntity(
+                        id = 0L,
+                        prefixString = normalized,
+                        normalizedPrefix = normalized,
+                        label = rule.label.trim().take(40),
+                        isActive = rule.isActive,
+                        matchType = safeMatchType,
+                        createdAt = rule.createdAt.takeIf { it > 0L } ?: System.currentTimeMillis()
+                    )
+                )
+                if (insertedId != -1L) {
+                    restoredCount++
+                }
+            }
+        }
+        return restoredCount
+    }
 }

@@ -131,4 +131,24 @@ class SpamBlockerPreferencesRepository(
     suspend fun setBatteryOptimizationPromptDismissed(dismissed: Boolean) {
         context.spamBlockerDataStore.edit { it[Keys.BATTERY_OPT_PROMPT_DISMISSED] = dismissed }
     }
+
+    /**
+     * Atomically restores all CallGuard call & shield settings parsed from a local JSON backup.
+     */
+    suspend fun restoreSettings(restored: SpamBlockerSettings) {
+        context.spamBlockerDataStore.edit { prefs ->
+            prefs[Keys.SPAM_BLOCKER_ENABLED] = restored.isSpamBlockerEnabled
+            prefs[Keys.DO_NOT_DISTURB_ENABLED] = restored.doNotDisturbEnabled
+            prefs[Keys.BLOCK_BUILTIN_SPAM_SERIES] = restored.blockBuiltInSpamSeries
+            prefs[Keys.BLOCK_HIDDEN_PRIVATE_CALLS] = restored.blockHiddenPrivateCalls
+            prefs[Keys.BLOCK_SPOOFED_STIR_SHAKEN] = restored.blockSpoofedStirShakenCalls
+            prefs[Keys.SILENCE_ONLY_MODE] = restored.silenceOnlyMode
+            prefs[Keys.RINGTONE_ENABLED] = restored.ringtoneEnabled
+            prefs[Keys.VIBRATION_ENABLED] = restored.vibrationEnabled
+            prefs[Keys.NOTIFICATIONS_ENABLED] = restored.notificationsEnabled
+            prefs[Keys.CALL_RECORDING_ENABLED] = restored.callRecordingEnabled
+            prefs[Keys.AUTO_RECORD_CALLS] = restored.autoRecordCalls && restored.callRecordingEnabled
+            prefs[Keys.BATTERY_OPT_PROMPT_DISMISSED] = restored.batteryOptimizationPromptDismissed
+        }
+    }
 }

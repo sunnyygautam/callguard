@@ -271,6 +271,8 @@ fun CallGuardScreen(
         }
     }
 
+    var includeBlockedNumbersInBackup by remember { mutableStateOf(true) }
+    var includeCallSettingsInBackup by remember { mutableStateOf(true) }
     var includeBlockedHistoryInBackup by remember { mutableStateOf(true) }
     var includeContactsInBackup by remember { mutableStateOf(true) }
     var pendingExportAfterContactsPrompt by remember { mutableStateOf(false) }
@@ -282,9 +284,20 @@ fun CallGuardScreen(
         if (destinationUri != null) {
             viewModel.exportBackupToUri(
                 destinationUri = destinationUri,
+                includeBlockedNumbers = includeBlockedNumbersInBackup,
+                includeCallSettings = includeCallSettingsInBackup,
                 includeBlockedHistory = includeBlockedHistoryInBackup,
                 includeContacts = includeContactsInBackup
             )
+        }
+    }
+
+    // Zero-permission Storage Access Framework launcher for restoring a local JSON backup file
+    val openBackupDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { sourceUri ->
+        if (sourceUri != null) {
+            viewModel.restoreBackupFromUri(sourceUri)
         }
     }
 
@@ -516,8 +529,9 @@ fun CallGuardScreen(
                 is CallGuardEvent.BackupExported -> {
                     snackbarHostState.showSnackbar(
                         message = context.getString(
-                            R.string.snackbar_backup_exported,
+                            R.string.snackbar_backup_exported_v2,
                             event.result.fileName,
+                            event.result.blockedNumberCount,
                             event.result.blockedCallCount,
                             event.result.contactCount
                         ),
@@ -528,6 +542,31 @@ fun CallGuardScreen(
                     snackbarHostState.showSnackbar(
                         message = context.getString(
                             R.string.snackbar_backup_failed,
+                            event.reason
+                        ),
+                        duration = SnackbarDuration.Long
+                    )
+                }
+                is CallGuardEvent.BackupRestored -> {
+                    val settingsSuffix = if (event.result.restoredCallSettings) {
+                        context.getString(R.string.backup_restored_settings_suffix)
+                    } else {
+                        ""
+                    }
+                    snackbarHostState.showSnackbar(
+                        message = context.getString(
+                            R.string.snackbar_backup_restored,
+                            event.result.fileName,
+                            event.result.restoredBlockedNumbers,
+                            settingsSuffix
+                        ),
+                        duration = SnackbarDuration.Long
+                    )
+                }
+                is CallGuardEvent.BackupRestoreFailed -> {
+                    snackbarHostState.showSnackbar(
+                        message = context.getString(
+                            R.string.snackbar_backup_restore_failed,
                             event.reason
                         ),
                         duration = SnackbarDuration.Long
@@ -904,16 +943,27 @@ fun CallGuardScreen(
                                     )
                                 }
 
-                                // Local JSON Data Backup & Export Card
+                                // Local JSON Data Backup & Restore Card
                                 item(key = "data_backup_export") {
                                     DataBackupExportCard(
+                                        blockedNumberCount = uiState.prefixes.size,
                                         blockedCallCount = uiState.blockedCallCount,
                                         contactCount = uiState.deviceContacts.size,
                                         hasContactsPermission = uiState.hasContactsPermission,
+                                        includeBlockedNumbers = includeBlockedNumbersInBackup,
+                                        includeCallSettings = includeCallSettingsInBackup,
                                         includeBlockedHistory = includeBlockedHistoryInBackup,
                                         includeContacts = includeContactsInBackup,
                                         isExporting = uiState.isExportingBackup,
+                                        isRestoring = uiState.isRestoringBackup,
                                         lastBackupResult = uiState.lastBackupResult,
+                                        lastRestoreResult = uiState.lastRestoreResult,
+                                        onToggleIncludeBlockedNumbers = {
+                                            includeBlockedNumbersInBackup = it
+                                        },
+                                        onToggleIncludeCallSettings = {
+                                            includeCallSettingsInBackup = it
+                                        },
                                         onToggleIncludeBlockedHistory = {
                                             includeBlockedHistoryInBackup = it
                                         },
@@ -926,7 +976,12 @@ fun CallGuardScreen(
                                                 Manifest.permission.READ_CONTACTS
                                             )
                                         },
-                                        onExportClick = startJsonBackupExport
+                                        onExportClick = startJsonBackupExport,
+                                        onRestoreClick = {
+                                            openBackupDocumentLauncher.launch(
+                                                arrayOf("application/json", "text/plain", "*/*")
+                                            )
+                                        }
                                     )
                                 }
 

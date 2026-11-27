@@ -388,6 +388,22 @@
     <string name="snackbar_call_history_deleted">Deleted call entry for %1$s</string>
     <string name="snackbar_call_history_hidden">Removed %1$s from recent list</string>
 
+    <!-- Backup & Restore: Blocked Numbers and Call Settings -->
+    <string name="backup_card_title_v2">Backup &amp; Restore</string>
+    <string name="backup_card_subtitle_v2">Save or restore blocked phone numbers, call settings, history, and contacts as a local JSON file</string>
+    <string name="backup_option_blocked_numbers">Blocked Numbers &amp; Prefixes</string>
+    <string name="backup_count_blocked_numbers">%1$d saved rules</string>
+    <string name="backup_option_call_settings">Call &amp; Shield Settings</string>
+    <string name="backup_desc_call_settings">Spam Blocker, DND, Call Recording, Ringtone, Vibration &amp; Alerts</string>
+    <string name="backup_btn_restore">Restore JSON</string>
+    <string name="backup_btn_restoring">Restoring…</string>
+    <string name="backup_last_saved_v2">Backed up %1$s (%2$d blocked rules, %3$d history, %4$d contacts)</string>
+    <string name="backup_last_restored">Restored %1$s (%2$d blocked rules%3$s)</string>
+    <string name="backup_restored_settings_suffix"> &amp; call settings</string>
+    <string name="snackbar_backup_exported_v2">Backup saved to %1$s (%2$d blocked rules, %3$d history, %4$d contacts)</string>
+    <string name="snackbar_backup_restored">Restored %2$d blocked rules%3$s from %1$s</string>
+    <string name="snackbar_backup_restore_failed">Restore failed: %1$s</string>
+
     <!-- Feedback Snackbars -->
     <string name="snackbar_prefix_added">Blocked prefix %1$s added</string>
     <string name="snackbar_prefix_deleted">Removed prefix %1$s</string>

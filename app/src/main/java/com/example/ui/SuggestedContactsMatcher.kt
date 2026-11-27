@@ -5,24 +5,29 @@ import com.example.data.repository.DeviceContactEntry
 import com.example.telecom.PhoneNumberMatcher
 
 /**
- * Suggested contact/caller item displayed in the Keypad tab's top Suggested section.
+ * Suggested contact/caller item displayed in the Keypad tab's top Suggested section,
+ * including exact matched substring ranges for visual highlighting.
  */
 data class KeypadSuggestion(
     val id: String,
     val displayName: String,
     val phoneNumber: String,
     val normalizedNumber: String,
-    val isFromRecentCall: Boolean
+    val isFromRecentCall: Boolean,
+    val nameMatchRanges: List<IntRange> = emptyList(),
+    val numberMatchRanges: List<IntRange> = emptyList()
 )
 
 /**
- * Pure filtering and smart T9/digit suggestion utilities for the Home Contacts search
+ * Pure filtering and smart substring/T9/regex suggestion utilities for the Home Contacts search
  * and Keypad top Suggested section.
  */
 object SuggestedContactsMatcher {
 
     /**
-     * Filters device contacts by case-insensitive display name OR raw/normalized phone digits.
+     * Filters and ranks device contacts using [SubstringSearchEngine] (`indexOf`, `Regex.find`,
+     * multi-token matching, and separator-agnostic phone regexes) to find substrings anywhere
+     * inside contact names or phone numbers.
      */
     fun filterContacts(
         contacts: List<DeviceContactEntry>,
@@ -31,22 +36,28 @@ object SuggestedContactsMatcher {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) return contacts
 
-        val normalizedQueryDigits = PhoneNumberMatcher.normalize(trimmed).removePrefix("+")
-        return contacts.filter { contact ->
-            val matchesName = contact.displayName.contains(trimmed, ignoreCase = true)
-            val matchesRaw = contact.phoneNumber.contains(trimmed, ignoreCase = true)
-            val matchesDigits = normalizedQueryDigits.isNotEmpty() &&
-                contact.normalizedNumber.removePrefix("+").contains(normalizedQueryDigits)
-            matchesName || matchesRaw || matchesDigits
+        return contacts.mapNotNull { contact ->
+            val nameMatch = SubstringSearchEngine.findTextMatches(contact.displayName, trimmed)
+            val phoneMatch = SubstringSearchEngine.findPhoneNumberMatch(contact.phoneNumber, trimmed)
+            val bestRank = minOf(nameMatch.rank, phoneMatch.rank)
+            if (nameMatch.isMatch || phoneMatch.isMatch) {
+                contact to bestRank
+            } else {
+                null
+            }
         }
+            .sortedBy { it.second }
+            .map { it.first }
     }
 
     /**
      * Builds smart caller suggestions for the Keypad tab's top Suggested section:
      * - When [dialerInput] is blank: prioritizes unique recent callers, then fills remaining slots
      *   with device contacts.
-     * - When [dialerInput] has digits: matches contacts and recent callers by phone number digits
-     *   OR classic T9 keypad letters (e.g., "254" -> "Alice").
+     * - When [dialerInput] has digits: uses [SubstringSearchEngine] (`indexOf` & `Regex.find`) to
+     *   find digit substrings anywhere inside formatted/normalized phone numbers AND T9 substrings
+     *   anywhere inside contact names (e.g., `"372"` -> `"erc"` in `"Alice Mercer"`), returning
+     *   relevance-ranked results with exact highlight spans.
      */
     fun buildKeypadSuggestions(
         dialerInput: String,
@@ -62,35 +73,44 @@ object SuggestedContactsMatcher {
             return candidates.take(maxResults)
         }
 
-        val normalizedDigits = PhoneNumberMatcher.normalize(trimmedInput).removePrefix("+")
-        val rawDigitsOnly = trimmedInput.filter { it.isDigit() }
+        return candidates.mapIndexedNotNull { originalIndex, item ->
+            val phoneMatch = SubstringSearchEngine.findPhoneNumberMatch(item.phoneNumber, trimmedInput)
+            val t9NameMatch = SubstringSearchEngine.findT9NameMatch(item.displayName, trimmedInput)
+            val directNameMatch = SubstringSearchEngine.findTextMatches(item.displayName, trimmedInput)
 
-        return candidates.filter { item ->
-            val matchesRawNumber = item.phoneNumber.contains(trimmedInput, ignoreCase = true)
-            val matchesNormalized = normalizedDigits.isNotEmpty() &&
-                item.normalizedNumber.removePrefix("+").contains(normalizedDigits)
-            val matchesT9 = rawDigitsOnly.isNotEmpty() &&
-                toT9Digits(item.displayName).contains(rawDigitsOnly)
-            matchesRawNumber || matchesNormalized || matchesT9
-        }.take(maxResults)
+            val resolvedNameRanges = when {
+                directNameMatch.isMatch -> directNameMatch.ranges
+                t9NameMatch.isMatch -> t9NameMatch.ranges
+                else -> emptyList()
+            }
+            val resolvedNameRank = minOf(directNameMatch.rank, t9NameMatch.rank)
+
+            if (phoneMatch.isMatch || resolvedNameRanges.isNotEmpty()) {
+                val recencyBonus = if (item.isFromRecentCall) 0 else 4
+                val totalRank = minOf(phoneMatch.rank, resolvedNameRank) + recencyBonus
+                Triple(
+                    item.copy(
+                        nameMatchRanges = resolvedNameRanges,
+                        numberMatchRanges = phoneMatch.ranges
+                    ),
+                    totalRank,
+                    originalIndex
+                )
+            } else {
+                null
+            }
+        }
+            .sortedWith(compareBy<Triple<KeypadSuggestion, Int, Int>> { it.second }.thenBy { it.third })
+            .take(maxResults)
+            .map { it.first }
     }
 
     /**
      * Converts alphabetic characters in a name to their standard T9 telephone keypad digits.
      */
     internal fun toT9Digits(text: String): String = buildString(text.length) {
-        for (ch in text.lowercase()) {
-            when (ch) {
-                'a', 'b', 'c' -> append('2')
-                'd', 'e', 'f' -> append('3')
-                'g', 'h', 'i' -> append('4')
-                'j', 'k', 'l' -> append('5')
-                'm', 'n', 'o' -> append('6')
-                'p', 'q', 'r', 's' -> append('7')
-                't', 'u', 'v' -> append('8')
-                'w', 'x', 'y', 'z' -> append('9')
-                in '0'..'9' -> append(ch)
-            }
+        for (ch in text) {
+            SubstringSearchEngine.charToT9Digit(ch)?.let(::append)
         }
     }
 

@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -20,6 +21,12 @@ interface BlockedPrefixDao {
     fun observeAllPrefixes(): Flow<List<BlockedPrefixEntity>>
 
     /**
+     * One-shot snapshot of all saved blocked numbers and prefix rules for local JSON backup export.
+     */
+    @Query("SELECT * FROM blocked_prefixes ORDER BY created_at DESC")
+    suspend fun getAllPrefixesSnapshot(): List<BlockedPrefixEntity>
+
+    /**
      * One-shot suspend query returning only currently active rules.
      * Used inside [com.example.telecom.PrefixCallScreeningService.onScreenCall] on Dispatchers.IO.
      */
@@ -33,10 +40,22 @@ interface BlockedPrefixDao {
     suspend fun existsByNormalizedPrefix(normalizedPrefix: String): Boolean
 
     /**
+     * Looks up an existing rule by its unique normalized number/prefix for backup restore upserts.
+     */
+    @Query("SELECT * FROM blocked_prefixes WHERE normalized_prefix = :normalizedPrefix LIMIT 1")
+    suspend fun findByNormalizedPrefix(normalizedPrefix: String): BlockedPrefixEntity?
+
+    /**
      * Inserts a new prefix rule. Returns the row ID, or -1L if ignored due to conflict.
      */
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertPrefix(prefix: BlockedPrefixEntity): Long
+
+    /**
+     * Updates an existing rule's label, active state, and match type during restore.
+     */
+    @Update
+    suspend fun updatePrefix(prefix: BlockedPrefixEntity)
 
     /**
      * Enables or disables a specific prefix rule without deleting it.

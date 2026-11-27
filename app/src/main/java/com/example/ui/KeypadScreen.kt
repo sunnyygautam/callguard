@@ -144,7 +144,7 @@ internal fun KeypadScreen(
             dialerInput = uiState.dialerInput,
             contacts = uiState.deviceContacts,
             recentCalls = uiState.deviceCallLogs,
-            maxResults = 5
+            maxResults = if (uiState.dialerInput.isBlank()) 5 else 8
         )
     }
 
@@ -316,6 +316,7 @@ private fun SuggestedCallersCard(
                         }
                         SuggestionRow(
                             suggestion = suggestion,
+                            highlightMatches = dialerInput.isNotBlank(),
                             onSelect = { onSelectSuggestion(suggestion) },
                             onCall = { onCallSuggestion(suggestion) }
                         )
@@ -329,10 +330,41 @@ private fun SuggestedCallersCard(
 @Composable
 private fun SuggestionRow(
     suggestion: KeypadSuggestion,
+    highlightMatches: Boolean,
     onSelect: () -> Unit,
     onCall: () -> Unit
 ) {
     val initials = remember(suggestion.displayName) { extractInitials(suggestion.displayName) }
+    val highlightColor = MaterialTheme.colorScheme.primary
+    val highlightBg = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
+    val displayNameAnnotated = remember(
+        suggestion.displayName,
+        suggestion.nameMatchRanges,
+        highlightMatches,
+        highlightColor,
+        highlightBg
+    ) {
+        SubstringSearchEngine.buildHighlightedText(
+            text = suggestion.displayName,
+            ranges = if (highlightMatches) suggestion.nameMatchRanges else emptyList(),
+            highlightColor = highlightColor,
+            highlightBackground = highlightBg
+        )
+    }
+    val phoneNumberAnnotated = remember(
+        suggestion.phoneNumber,
+        suggestion.numberMatchRanges,
+        highlightMatches,
+        highlightColor,
+        highlightBg
+    ) {
+        SubstringSearchEngine.buildHighlightedText(
+            text = suggestion.phoneNumber,
+            ranges = if (highlightMatches) suggestion.numberMatchRanges else emptyList(),
+            highlightColor = highlightColor,
+            highlightBackground = highlightBg
+        )
+    }
 
     Row(
         modifier = Modifier
@@ -377,7 +409,7 @@ private fun SuggestionRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
-                    text = suggestion.displayName,
+                    text = displayNameAnnotated,
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
@@ -403,7 +435,7 @@ private fun SuggestionRow(
                 }
             }
             Text(
-                text = suggestion.phoneNumber,
+                text = phoneNumberAnnotated,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
