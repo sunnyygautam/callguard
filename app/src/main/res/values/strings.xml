@@ -404,6 +404,16 @@
     <string name="snackbar_backup_restored">Restored %2$d blocked rules%3$s from %1$s</string>
     <string name="snackbar_backup_restore_failed">Restore failed: %1$s</string>
 
+    <!-- Incoming Call Swipe-Up Controls -->
+    <string name="incall_action_reject">Reject</string>
+    <string name="incall_swipe_up_hint">Swipe up to answer or reject</string>
+    <string name="incall_swipe_up_answer_prompt">Keep swiping up to answer</string>
+    <string name="incall_swipe_up_reject_prompt">Keep swiping up to reject</string>
+    <string name="incall_release_to_answer">Release to answer</string>
+    <string name="incall_release_to_reject">Release to reject</string>
+    <string name="incall_cd_swipe_up_answer">Swipe up to answer incoming call</string>
+    <string name="incall_cd_swipe_up_reject">Swipe up to reject incoming call</string>
+
     <!-- Feedback Snackbars -->
     <string name="snackbar_prefix_added">Blocked prefix %1$s added</string>
     <string name="snackbar_prefix_deleted">Removed prefix %1$s</string>

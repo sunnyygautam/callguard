@@ -32,7 +32,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.outlined.Dialpad
-import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.CallEnd
 import androidx.compose.material.icons.rounded.FiberManualRecord
 import androidx.compose.material.icons.rounded.Mic
@@ -421,27 +420,11 @@ private fun InCallScreen(
                 verticalArrangement = Arrangement.spacedBy(28.dp)
             ) {
                 if (callState.state == CallLifecycleState.RINGING) {
-                    // Incoming Call: Decline & Answer
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        CircularCallActionButton(
-                            icon = Icons.Rounded.CallEnd,
-                            label = stringResource(R.string.incall_action_decline),
-                            containerColor = CrimsonError,
-                            onClick = onRejectOrEnd,
-                            testTag = "incall_decline_button"
-                        )
-                        CircularCallActionButton(
-                            icon = Icons.Rounded.Call,
-                            label = stringResource(R.string.incall_action_answer),
-                            containerColor = ShieldActiveEmerald,
-                            onClick = onAnswer,
-                            testTag = "incall_answer_button"
-                        )
-                    }
+                    // Incoming Call: Swipe up to Answer or Reject
+                    IncomingCallSwipeControls(
+                        onAnswer = onAnswer,
+                        onReject = onRejectOrEnd
+                    )
                 } else {
                     // Outgoing / Active Call Controls Grid + End Call CTA
                     Row(
