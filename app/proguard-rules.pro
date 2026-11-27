@@ -1,21 +1,23 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# CallGuard R8 / ProGuard Configuration
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Preserve obfuscated stack trace line numbers while hiding local source file names.
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Keep Room database, generated implementation, DAOs, and entity constructors.
+-keep class * extends androidx.room.RoomDatabase
+-keep @androidx.room.Entity class * { *; }
+-keep @androidx.room.Dao interface * { *; }
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Keep Telecom services, activities, and broadcast receivers referenced via AndroidManifest.
+-keep class com.example.telecom.CallGuardInCallService { *; }
+-keep class com.example.telecom.PrefixCallScreeningService { *; }
+-keep class com.example.telecom.CallActionReceiver { *; }
+-keep class com.example.ui.incall.InCallActivity { *; }
+
+# Strip verbose and debug log calls in release builds to reduce DEX size and runtime string overhead.
+-assumenosideeffects class android.util.Log {
+    public static boolean isLoggable(java.lang.String, int);
+    public static int v(...);
+    public static int d(...);
+}

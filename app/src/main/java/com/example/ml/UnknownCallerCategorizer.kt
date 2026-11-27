@@ -81,6 +81,7 @@ object UnknownCallerCategorizer {
             }
         }
 
+        val scratchCalendar = Calendar.getInstance(timeZone)
         val results = LinkedHashMap<Long, CallerCategoryResult>(callLogs.size)
         for (entry in callLogs) {
             val digits = PhoneNumberMatcher.normalize(entry.number).removePrefix("+")
@@ -107,7 +108,8 @@ object UnknownCallerCategorizer {
             results[entry.id] = classifyUnknownNumber(
                 digitsOnly = digits,
                 peerCalls = peerCalls,
-                timeZone = timeZone
+                timeZone = timeZone,
+                reusableCalendar = scratchCalendar
             )
         }
 
@@ -117,7 +119,8 @@ object UnknownCallerCategorizer {
     internal fun classifyUnknownNumber(
         digitsOnly: String,
         peerCalls: List<DeviceCallLogEntry>,
-        timeZone: TimeZone = TimeZone.getDefault()
+        timeZone: TimeZone = TimeZone.getDefault(),
+        reusableCalendar: Calendar? = null
     ): CallerCategoryResult {
         val totalCalls = peerCalls.size.coerceAtLeast(1)
         val hasOutgoing = peerCalls.any { it.type == DeviceCallType.OUTGOING }
@@ -129,7 +132,8 @@ object UnknownCallerCategorizer {
         val hasTwoWayInteraction = hasOutgoing && hasIncomingOrMissed
         val isBusinessPrefix = isKnownBusinessPrefix(digitsOnly)
 
-        val businessHourCalls = peerCalls.count { isBusinessHours(it.dateMillis, timeZone) }
+        val calendar = reusableCalendar ?: Calendar.getInstance(timeZone)
+        val businessHourCalls = peerCalls.count { isBusinessHours(it.dateMillis, timeZone, calendar) }
         val mostlyBusinessHours = totalCalls >= 2 &&
             businessHourCalls * 2 >= totalCalls &&
             businessHourCalls >= 2
@@ -185,8 +189,15 @@ object UnknownCallerCategorizer {
         return BUSINESS_PREFIXES.any { prefix -> digitsOnly.startsWith(prefix) }
     }
 
-    internal fun isBusinessHours(epochMillis: Long, timeZone: TimeZone): Boolean {
-        val cal = Calendar.getInstance(timeZone).apply { timeInMillis = epochMillis }
+    internal fun isBusinessHours(
+        epochMillis: Long,
+        timeZone: TimeZone,
+        reusableCalendar: Calendar? = null
+    ): Boolean {
+        val cal = (reusableCalendar ?: Calendar.getInstance(timeZone)).apply {
+            this.timeZone = timeZone
+            timeInMillis = epochMillis
+        }
         val dayOfWeek = cal.get(Calendar.DAY_OF_WEEK)
         val isWeekday = dayOfWeek in Calendar.MONDAY..Calendar.FRIDAY
         val hour = cal.get(Calendar.HOUR_OF_DAY)

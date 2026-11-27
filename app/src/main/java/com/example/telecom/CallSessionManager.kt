@@ -58,6 +58,8 @@ object CallSessionManager {
     fun detachService(service: CallGuardInCallService) {
         if (serviceRef?.get() === service) {
             serviceRef = null
+            activeCall = null
+            _activeCallState.value = null
         }
     }
 

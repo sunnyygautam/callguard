@@ -36,6 +36,8 @@ import com.example.telecom.CallRecordingPlayer
 import com.example.telecom.CallScreeningStatus
 import com.example.telecom.PhoneNumberMatcher
 import com.example.telecom.RecordingPlaybackState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -45,6 +47,10 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -229,9 +235,27 @@ class CallGuardViewModel(
         val summarizingIds: Set<Long>
     )
 
+    private data class CallHistoryAnalyticsInput(
+        val visibleCallLogs: List<DeviceCallLogEntry>,
+        val contacts: List<DeviceContactEntry>,
+        val activePrefixes: List<BlockedPrefixEntity>
+    )
+
+    private data class CallHistoryAnalyticsSnapshot(
+        val mlScores: Map<Long, SpamMlAnalysisResult> = emptyMap(),
+        val categories: Map<Long, CallerCategoryResult> = emptyMap()
+    )
+
+    private data class DerivedAnalyticsBundle(
+        val historyAnalytics: CallHistoryAnalyticsSnapshot,
+        val last7DaysSummary: BlockedCallsSummary
+    )
+
     private val recordingPlayer = CallRecordingPlayer()
     private val summarizingRecordingIds = MutableStateFlow<Set<Long>>(emptySet())
     private var contactSearchJob: Job? = null
+    private var lastContactsRefreshMs: Long = 0L
+    private var lastCallHistoryRefreshMs: Long = 0L
     private val formState = MutableStateFlow(FormState())
     private val screeningStatus = MutableStateFlow(initialStatus)
     private val phoneUiState = MutableStateFlow(
@@ -263,27 +287,64 @@ class CallGuardViewModel(
         RecordingsSnapshot(recordings, playback, summarizingIds)
     }
 
+    // Offload heavy ML spam scoring & unknown caller categorization off the Main thread,
+    // recomputing ONLY when call logs, contacts, or active rules actually change—never on
+    // dialpad input, search keystrokes, tab switches, or 200ms audio playback ticks.
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val callHistoryAnalyticsState = combine(
+        phoneUiState.map { phone ->
+            if (phone.dismissedCallLogIds.isEmpty()) {
+                phone.deviceCallLogs
+            } else {
+                phone.deviceCallLogs.filterNot { it.id in phone.dismissedCallLogIds }
+            }
+        }.distinctUntilChanged(),
+        phoneUiState.map { it.deviceContacts }.distinctUntilChanged(),
+        prefixRepository.allPrefixes.map { prefixes -> prefixes.filter { it.isActive } }.distinctUntilChanged()
+    ) { visibleCallLogs, contacts, activePrefixes ->
+        CallHistoryAnalyticsInput(visibleCallLogs, contacts, activePrefixes)
+    }.distinctUntilChanged()
+        .mapLatest { input ->
+            CallHistoryAnalyticsSnapshot(
+                mlScores = SpamMlAnalysisService.analyzeCallHistoryBatch(
+                    callLogs = input.visibleCallLogs,
+                    contacts = input.contacts,
+                    activeManualPrefixes = input.activePrefixes
+                ),
+                categories = UnknownCallerCategorizer.categorizeCallHistoryBatch(
+                    callLogs = input.visibleCallLogs,
+                    contacts = input.contacts
+                )
+            )
+        }
+        .flowOn(Dispatchers.Default)
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val last7DaysSummaryState = callLogRepository.allBlockedCalls
+        .distinctUntilChanged()
+        .mapLatest { logs -> DailyBlockedCallsAggregator.buildLast7Days(logs) }
+        .flowOn(Dispatchers.Default)
+
+    private val derivedAnalyticsState = combine(
+        callHistoryAnalyticsState,
+        last7DaysSummaryState
+    ) { historyAnalytics, summary ->
+        DerivedAnalyticsBundle(historyAnalytics, summary)
+    }
+
     val uiState: StateFlow<CallGuardUiState> = combine(
         coreShieldState,
         screeningStatus,
         phoneUiState,
-        recordingsState
-    ) { core, status, phone, rec ->
+        recordingsState,
+        derivedAnalyticsState
+    ) { core, status, phone, rec, analytics ->
         val activePrefixes = core.prefixes.filter { it.isActive }
         val visibleCallLogs = if (phone.dismissedCallLogIds.isEmpty()) {
             phone.deviceCallLogs
         } else {
             phone.deviceCallLogs.filterNot { it.id in phone.dismissedCallLogIds }
         }
-        val mlScores = SpamMlAnalysisService.analyzeCallHistoryBatch(
-            callLogs = visibleCallLogs,
-            contacts = phone.deviceContacts,
-            activeManualPrefixes = activePrefixes
-        )
-        val callerCategories = UnknownCallerCategorizer.categorizeCallHistoryBatch(
-            callLogs = visibleCallLogs,
-            contacts = phone.deviceContacts
-        )
 
         // When user searches a phone number under Home tab (>= 3 digits, no letters),
         // compute immediate on-device ML spam risk & Blocked List match for that number.
@@ -342,7 +403,7 @@ class CallGuardViewModel(
             summarizingRecordingIds = rec.summarizingIds,
             recordingPlaybackState = rec.playbackState,
             hasRecordAudioPermission = phone.hasRecordAudioPermission,
-            last7DaysSummary = DailyBlockedCallsAggregator.buildLast7Days(core.callLogs),
+            last7DaysSummary = analytics.last7DaysSummary,
             spamBlockerSettings = core.spamSettings,
             screeningStatus = status,
             batteryOptimizationStatus = phone.batteryOptimizationStatus,
@@ -361,8 +422,8 @@ class CallGuardViewModel(
             hasCallLogPermission = phone.hasCallLogPermission,
             hasNotificationPermission = phone.hasNotificationPermission,
             isLoadingCallHistory = phone.isLoadingCallHistory,
-            callHistoryMlScores = mlScores,
-            callHistoryCategories = callerCategories,
+            callHistoryMlScores = analytics.historyAnalytics.mlScores,
+            callHistoryCategories = analytics.historyAnalytics.categories,
             isExportingBackup = phone.isExportingBackup,
             lastBackupResult = phone.lastBackupResult,
             isRestoringBackup = phone.isRestoringBackup,
@@ -769,9 +830,10 @@ class CallGuardViewModel(
         }
     }
 
-    fun refreshDeviceContacts() {
+    fun refreshDeviceContacts(force: Boolean = false) {
         val hasPermission = deviceContactsRepository.hasContactsPermission()
         if (!hasPermission) {
+            lastContactsRefreshMs = 0L
             phoneUiState.update {
                 it.copy(
                     hasContactsPermission = false,
@@ -782,9 +844,21 @@ class CallGuardViewModel(
             return
         }
 
+        val current = phoneUiState.value
+        val now = System.currentTimeMillis()
+        if (!force && (current.isLoadingContacts ||
+                (current.deviceContacts.isNotEmpty() && now - lastContactsRefreshMs < REFRESH_THROTTLE_MS))
+        ) {
+            if (!current.hasContactsPermission) {
+                phoneUiState.update { it.copy(hasContactsPermission = true) }
+            }
+            return
+        }
+
         viewModelScope.launch {
             phoneUiState.update { it.copy(hasContactsPermission = true, isLoadingContacts = true) }
             val contacts = deviceContactsRepository.fetchContacts()
+            lastContactsRefreshMs = System.currentTimeMillis()
             phoneUiState.update {
                 it.copy(
                     hasContactsPermission = true,
@@ -795,9 +869,10 @@ class CallGuardViewModel(
         }
     }
 
-    fun refreshDeviceCallHistory() {
+    fun refreshDeviceCallHistory(force: Boolean = false) {
         val hasPermission = deviceCallLogRepository.hasCallLogPermission()
         if (!hasPermission) {
+            lastCallHistoryRefreshMs = 0L
             phoneUiState.update {
                 it.copy(
                     hasCallLogPermission = false,
@@ -808,9 +883,21 @@ class CallGuardViewModel(
             return
         }
 
+        val current = phoneUiState.value
+        val now = System.currentTimeMillis()
+        if (!force && (current.isLoadingCallHistory ||
+                (current.deviceCallLogs.isNotEmpty() && now - lastCallHistoryRefreshMs < REFRESH_THROTTLE_MS))
+        ) {
+            if (!current.hasCallLogPermission) {
+                phoneUiState.update { it.copy(hasCallLogPermission = true) }
+            }
+            return
+        }
+
         viewModelScope.launch {
             phoneUiState.update { it.copy(hasCallLogPermission = true, isLoadingCallHistory = true) }
             val recentCalls = deviceCallLogRepository.fetchRecentCalls()
+            lastCallHistoryRefreshMs = System.currentTimeMillis()
             phoneUiState.update {
                 it.copy(
                     hasCallLogPermission = true,
@@ -1093,5 +1180,10 @@ class CallGuardViewModel(
             }
             throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }
+    }
+
+    companion object {
+        // Avoid redundant cold-start (init + ON_RESUME) and rapid tab-switch ContentResolver queries
+        private const val REFRESH_THROTTLE_MS = 4_000L
     }
 }

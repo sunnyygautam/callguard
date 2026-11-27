@@ -64,6 +64,12 @@ object ConversationTextSummarizer {
         "Work" to setOf("project", "client", "report", "team", "office", "deadline", "contract", "proposal", "document", "email")
     )
 
+    private val NEWLINE_REGEX = Regex("[\\r\\n]+")
+    private val WHITESPACE_REGEX = Regex("\\s+")
+    private val DOUBLE_DOT_REGEX = Regex("\\.\\s*\\.")
+    private val SENTENCE_SPLIT_REGEX = Regex("(?<=[.!?])\\s+")
+    private val WORD_TOKEN_REGEX = Regex("[a-zA-Z0-9']+")
+
     /**
      * Generates a concise text summary, bulleted key points, and topic tags from a recorded
      * call's on-device transcript (or falls back to an acoustic speech-activity summary when
@@ -253,15 +259,15 @@ object ConversationTextSummarizer {
 
     private fun normalizeTranscript(raw: String): String {
         return raw
-            .replace(Regex("[\\r\\n]+"), ". ")
-            .replace(Regex("\\s+"), " ")
-            .replace(Regex("\\.\\s*\\."), ".")
+            .replace(NEWLINE_REGEX, ". ")
+            .replace(WHITESPACE_REGEX, " ")
+            .replace(DOUBLE_DOT_REGEX, ".")
             .trim()
     }
 
     private fun splitIntoSentences(text: String): List<String> {
         val rawSplits = text
-            .split(Regex("(?<=[.!?])\\s+"))
+            .split(SENTENCE_SPLIT_REGEX)
             .map { it.trim().trimEnd('.', '!', '?').trim() }
             .filter { it.length >= 4 }
 
@@ -269,14 +275,14 @@ object ConversationTextSummarizer {
 
         // On-device ASR sometimes returns unpunctuated continuous speech: chunk cleanly into ~16-word clauses
         val single = rawSplits.firstOrNull() ?: return emptyList()
-        val words = single.split(Regex("\\s+")).filter { it.isNotBlank() }
+        val words = single.split(WHITESPACE_REGEX).filter { it.isNotBlank() }
         if (words.size <= 20) return listOf(single)
 
         return words.chunked(16).map { it.joinToString(" ") }
     }
 
     private fun tokenizeContentWords(sentence: String): List<String> {
-        return Regex("[a-zA-Z0-9']+").findAll(sentence.lowercase(Locale.US))
+        return WORD_TOKEN_REGEX.findAll(sentence.lowercase(Locale.US))
             .map { it.value.trim('\'') }
             .filter { it.length >= 3 && it !in STOP_WORDS && !it.all(Char::isDigit) }
             .toList()

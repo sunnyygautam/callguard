@@ -42,8 +42,9 @@ android {
 
   buildTypes {
     release {
-      isCrunchPngs = false
-      isMinifyEnabled = false
+      isCrunchPngs = true
+      isMinifyEnabled = true
+      isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
       // AI Studio.
@@ -53,6 +54,25 @@ android {
       // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
       // AI Studio.
       signingConfig = signingConfigs.getByName("debugConfig")
+    }
+  }
+  androidResources {
+    // Strip unused third-party locale resources since CallGuard ships English strings.
+    localeFilters += listOf("en")
+  }
+  bundle {
+    language { enableSplit = true }
+    density { enableSplit = true }
+    abi { enableSplit = true }
+  }
+  packaging {
+    resources {
+      excludes += setOf(
+        "/META-INF/{AL2.0,LGPL2.1}",
+        "META-INF/LICENSE*",
+        "META-INF/NOTICE*",
+        "DebugProbesKt.bin"
+      )
     }
   }
   compileOptions {
@@ -68,6 +88,12 @@ android {
     includeInApk = false
     includeInBundle = true
   }
+}
+
+composeCompiler {
+  stabilityConfigurationFiles.add(
+    rootProject.layout.projectDirectory.file("compose_compiler_config.conf")
+  )
 }
 
 // Configure the Secrets Gradle Plugin to use .env and .env.example files

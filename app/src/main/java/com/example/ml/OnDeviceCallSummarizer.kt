@@ -200,6 +200,7 @@ class OnDeviceCallSummarizer(
             val maxAsrBytes = TARGET_ASR_SAMPLE_RATE * 2 * MAX_ASR_SECONDS
             val resampleStep = sampleRate.toDouble() / TARGET_ASR_SAMPLE_RATE.toDouble()
             var resampleAccumulator = 0.0
+            var scratchChunk = ByteArray(0)
 
             while (!sawOutputEos) {
                 if (!sawInputEos) {
@@ -235,10 +236,14 @@ class OnDeviceCallSummarizer(
                     if (outputBuffer != null && bufferInfo.size > 0) {
                         outputBuffer.position(bufferInfo.offset)
                         outputBuffer.limit(bufferInfo.offset + bufferInfo.size)
-                        val chunk = ByteArray(bufferInfo.size)
-                        outputBuffer.get(chunk)
+                        if (scratchChunk.size < bufferInfo.size) {
+                            scratchChunk = ByteArray(bufferInfo.size)
+                        }
+                        outputBuffer.get(scratchChunk, 0, bufferInfo.size)
 
-                        val shortBuf = ByteBuffer.wrap(chunk).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
+                        val shortBuf = ByteBuffer.wrap(scratchChunk, 0, bufferInfo.size)
+                            .order(ByteOrder.LITTLE_ENDIAN)
+                            .asShortBuffer()
                         val frameCount = shortBuf.remaining() / channelCount
                         for (f in 0 until frameCount) {
                             var monoSum = 0
@@ -332,13 +337,13 @@ class OnDeviceCallSummarizer(
         val readFd = pipe[0]
         val writeFd = pipe[1]
 
-        // Write PCM bytes on IO thread and close the write end so SpeechRecognizer sees EOF
-        val writerThread = Thread {
+        // Write PCM bytes on a dedicated daemon thread and close the write end so SpeechRecognizer sees EOF
+        val writerThread = Thread({
             try {
                 ParcelFileDescriptor.AutoCloseOutputStream(writeFd).use { out ->
                     var offset = 0
                     val chunkSize = 4096
-                    while (offset < pcmBytes.size) {
+                    while (offset < pcmBytes.size && !Thread.currentThread().isInterrupted) {
                         val len = minOf(chunkSize, pcmBytes.size - offset)
                         out.write(pcmBytes, offset, len)
                         offset += len
@@ -346,8 +351,10 @@ class OnDeviceCallSummarizer(
                     out.flush()
                 }
             } catch (_: Exception) {
-                // Pipe closed by recognizer
+                // Pipe closed by recognizer or thread interrupted on cancellation
             }
+        }, "CallGuard-AsrPipeWriter").apply {
+            isDaemon = true
         }
 
         val transcript = withTimeoutOrNull(ASR_TIMEOUT_MS) {
@@ -413,6 +420,7 @@ class OnDeviceCallSummarizer(
                     }
 
                     continuation.invokeOnCancellation {
+                        writerThread.interrupt()
                         runCatching { recognizer.cancel() }
                         runCatching { recognizer.destroy() }
                         runCatching { readFd.close() }
@@ -425,6 +433,7 @@ class OnDeviceCallSummarizer(
             }
         }
 
+        writerThread.interrupt()
         runCatching { readFd.close() }
         runCatching { writeFd.close() }
         return transcript.orEmpty()

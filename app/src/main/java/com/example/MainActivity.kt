@@ -6,6 +6,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import com.example.data.backup.LocalBackupExporter
 import com.example.data.local.CallGuardDatabase
 import com.example.data.repository.BlockedCallLogRepository
@@ -59,7 +62,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        CallNotificationManager.ensureChannels(applicationContext)
+        lifecycleScope.launch(Dispatchers.IO) {
+            CallNotificationManager.ensureChannels(applicationContext)
+        }
         handleDialIntent(intent)
 
         setContent {

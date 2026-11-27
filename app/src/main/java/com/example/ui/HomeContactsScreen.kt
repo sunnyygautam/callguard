@@ -1466,8 +1466,10 @@ internal fun filterDeviceCallLogs(
     }
 }
 
+private val INITIALS_WHITESPACE_REGEX = Regex("\\s+")
+
 internal fun extractInitials(name: String): String {
-    val parts = name.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+    val parts = name.trim().split(INITIALS_WHITESPACE_REGEX).filter { it.isNotEmpty() }
     return when {
         parts.isEmpty() -> "#"
         parts.size == 1 -> parts[0].take(2).uppercase()

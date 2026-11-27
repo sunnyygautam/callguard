@@ -240,7 +240,7 @@ fun CallGuardScreen(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { grantResults ->
         viewModel.updateScreeningStatus(CallScreeningRoleHelper.getStatus(context))
-        viewModel.refreshDeviceCallHistory()
+        viewModel.refreshDeviceCallHistory(force = true)
         val allGranted = grantResults.values.all { it }
         val messageRes = if (allGranted) {
             R.string.snackbar_permissions_granted
@@ -305,7 +305,7 @@ fun CallGuardScreen(
     val backupContactsPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { _ ->
-        viewModel.refreshDeviceContacts()
+        viewModel.refreshDeviceContacts(force = true)
         if (pendingExportAfterContactsPrompt) {
             pendingExportAfterContactsPrompt = false
             createBackupDocumentLauncher.launch(viewModel.createSuggestedBackupFileName())
@@ -316,7 +316,7 @@ fun CallGuardScreen(
     val dndContactsPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
-        viewModel.refreshDeviceContacts()
+        viewModel.refreshDeviceContacts(force = true)
         if (granted) {
             viewModel.setDoNotDisturbEnabled(true)
         } else {
@@ -1036,10 +1036,10 @@ fun CallGuardScreen(
                         HomeContactsScreen(
                             uiState = uiState,
                             onContactsSearchChanged = viewModel::onContactsSearchChanged,
-                            onRefreshContacts = viewModel::refreshDeviceContacts,
+                            onRefreshContacts = { viewModel.refreshDeviceContacts(force = true) },
                             onCallHistoryFilterSelected = viewModel::onCallHistoryFilterSelected,
                             onCallHistorySearchChanged = viewModel::onCallHistorySearchChanged,
-                            onRefreshCallHistory = viewModel::refreshDeviceCallHistory,
+                            onRefreshCallHistory = { viewModel.refreshDeviceCallHistory(force = true) },
                             onQuickBlockNumber = viewModel::prefillBlockPrefixFromCall,
                             onSwipeBlockNumber = viewModel::quickBlockNumberFromSwipe,
                             onDeleteCallHistoryEntry = viewModel::deleteCallHistoryEntry,

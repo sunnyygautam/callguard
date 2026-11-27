@@ -121,6 +121,15 @@ class CallRecordingPlayer {
         }
 
         val player = MediaPlayer()
+        mediaPlayer = player
+        _playbackState.value = RecordingPlaybackState(
+            activeRecordingId = recordingId,
+            isPlaying = false,
+            currentPositionMs = 0L,
+            durationMs = 0L,
+            errorMessage = null
+        )
+
         try {
             player.setAudioAttributes(
                 AudioAttributes.Builder()
@@ -129,8 +138,32 @@ class CallRecordingPlayer {
                     .build()
             )
             player.setDataSource(file.absolutePath)
-            player.prepare()
+            player.setOnPreparedListener { preparedPlayer ->
+                // Guard against stop() or another recording taking over while preparing asynchronously
+                if (mediaPlayer !== preparedPlayer) {
+                    runCatching { preparedPlayer.release() }
+                    return@setOnPreparedListener
+                }
+                runCatching {
+                    preparedPlayer.start()
+                    _playbackState.value = RecordingPlaybackState(
+                        activeRecordingId = recordingId,
+                        isPlaying = true,
+                        currentPositionMs = 0L,
+                        durationMs = preparedPlayer.duration.toLong().coerceAtLeast(1L),
+                        errorMessage = null
+                    )
+                    startProgressTicker()
+                }.onFailure { err ->
+                    stop()
+                    _playbackState.value = RecordingPlaybackState(
+                        activeRecordingId = recordingId,
+                        errorMessage = err.localizedMessage ?: "Unable to play this recording."
+                    )
+                }
+            }
             player.setOnCompletionListener {
+                if (mediaPlayer !== player) return@setOnCompletionListener
                 progressJob?.cancel()
                 _playbackState.update { state ->
                     state.copy(
@@ -140,17 +173,23 @@ class CallRecordingPlayer {
                 }
                 runCatching { player.seekTo(0) }
             }
-            player.start()
-            mediaPlayer = player
-            _playbackState.value = RecordingPlaybackState(
-                activeRecordingId = recordingId,
-                isPlaying = true,
-                currentPositionMs = 0L,
-                durationMs = player.duration.toLong().coerceAtLeast(1L),
-                errorMessage = null
-            )
-            startProgressTicker()
+            player.setOnErrorListener { failedPlayer, _, _ ->
+                if (mediaPlayer === failedPlayer) {
+                    stop()
+                    _playbackState.value = RecordingPlaybackState(
+                        activeRecordingId = recordingId,
+                        errorMessage = "Unable to play this recording."
+                    )
+                } else {
+                    runCatching { failedPlayer.release() }
+                }
+                true
+            }
+            player.prepareAsync()
         } catch (e: Exception) {
+            if (mediaPlayer === player) {
+                mediaPlayer = null
+            }
             runCatching { player.release() }
             _playbackState.value = RecordingPlaybackState(
                 activeRecordingId = recordingId,

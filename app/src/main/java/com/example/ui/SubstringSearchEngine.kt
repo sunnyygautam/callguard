@@ -28,6 +28,8 @@ data class SubstringMatch(
  */
 object SubstringSearchEngine {
 
+    private val WHITESPACE_REGEX = Regex("\\s+")
+
     /**
      * Finds case-insensitive substring match ranges anywhere inside [text] for [query]:
      * 1. Direct substring match via [String.indexOf] (handles mid-word & exact multi-char spans).
@@ -51,7 +53,7 @@ object SubstringSearchEngine {
         }
 
         // 2. Multi-token regex search using Regex.find (all space-separated tokens must match anywhere)
-        val tokens = trimmed.split(Regex("\\s+")).filter { it.isNotEmpty() }
+        val tokens = trimmed.split(WHITESPACE_REGEX).filter { it.isNotEmpty() }
         if (tokens.size > 1) {
             val matchedRanges = mutableListOf<IntRange>()
             var allMatched = true

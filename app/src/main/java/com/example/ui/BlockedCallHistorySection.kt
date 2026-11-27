@@ -362,12 +362,25 @@ internal fun ClearHistoryConfirmationDialog(
     )
 }
 
+private data class CachedDateFormatters(
+    val locale: Locale,
+    val todayFormat: SimpleDateFormat,
+    val otherDayFormat: SimpleDateFormat
+)
+
+private val cachedTimestampFormatters = ThreadLocal<CachedDateFormatters>()
+
 internal fun formatBlockedTimestamp(epochMillis: Long): String {
-    val date = Date(epochMillis)
-    val pattern = if (DateUtils.isToday(epochMillis)) {
-        "'Today,' h:mm a"
-    } else {
-        "MMM d, h:mm a"
+    val currentLocale = Locale.getDefault()
+    var cached = cachedTimestampFormatters.get()
+    if (cached == null || cached.locale != currentLocale) {
+        cached = CachedDateFormatters(
+            locale = currentLocale,
+            todayFormat = SimpleDateFormat("'Today,' h:mm a", currentLocale),
+            otherDayFormat = SimpleDateFormat("MMM d, h:mm a", currentLocale)
+        )
+        cachedTimestampFormatters.set(cached)
     }
-    return SimpleDateFormat(pattern, Locale.getDefault()).format(date)
+    val formatter = if (DateUtils.isToday(epochMillis)) cached.todayFormat else cached.otherDayFormat
+    return formatter.format(Date(epochMillis))
 }

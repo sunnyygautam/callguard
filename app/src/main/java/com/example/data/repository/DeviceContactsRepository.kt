@@ -162,7 +162,9 @@ class DeviceContactsRepository(
 
             // Supplement with anywhere-inside-string substring matching via indexOf & Regex.find
             // (Android's CONTENT_FILTER_URI only matches word prefixes on many OEM providers).
-            if (results.size < limit) {
+            // Skip full-table fallback for 1-character queries since indexed filter + in-memory
+            // contacts already cover initial keystrokes without scanning up to 2,000 rows.
+            if (trimmed.length >= 2 && results.size < limit) {
                 queryAnywhereSubstringContacts(trimmed, limit, results, seenKeys)
             }
 
